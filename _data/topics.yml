@@ -26,3 +26,10 @@
   description: Personal notes, lessons learned, and everything in between.
   color: "#a4461f"
   color_dark: "#d8743a"
+
+- slug: politics
+  name: Politics
+  description: Power, elections, and how public decisions get made.
+  color: "#842164"
+  color_dark: "#cf4eb6"
+  connects: [economics]

@@ -87,7 +87,7 @@ Your first paragraph goes here. It starts with a big decorative first letter.
 More text...
 ```
 
-- **`topic`** is the post's main subject: `economics`, `ai` or `life`.
+- **`topic`** is the post's main subject: `economics`, `ai`, `life` or `politics` (the list is in `_data/topics.yml`).
 - **`connections`** is optional. It lists other subjects and posts this post relates to, and those links appear on the Network page (see below) and at the end of the post.
 - **`description`** is optional but recommended.
 - The **date** comes from the file name.
@@ -236,7 +236,7 @@ The colors reach every page through `assets/css/topics.css`, which is generated 
 - **Smooth page transitions.** Post titles glide from the list into the article in browsers that support it.
 - **The Studio:** a private, word-processor-like app at `/studio/` for writing posts and managing the network and subjects.
 - **The Network:** an interactive neural network of your subjects and posts at `/network/`, with an edit mode for drawing connections.
-- **Topic pages and an archive:** `/economics/`, `/ai/`, `/life/` and `/archive/`.
+- **Topic pages and an archive:** `/economics/`, `/ai/`, `/life/`, `/politics/` and `/archive/`.
 - **Feeds, sharing and search:** an RSS feed at `/feed.xml`, a sitemap, and link previews for WhatsApp, LinkedIn and X.
 - **Details:** reading time, footnotes, code highlighting and math.
 - **Accessible:** keyboard friendly, good contrast in both themes, and topic colors that stay distinguishable for color-blind readers.
@@ -250,7 +250,7 @@ about.md         the About page
 index.html       the home page
 archive.html     the list of all posts
 network.html     the Network page
-topics/          the Economics / AI / Life pages
+topics/          the Economics / AI / Life / Politics pages
 _layouts/        page templates (post, page, topic…)
 _includes/       reusable pieces (header, footer, post list…)
 assets/css/      the design (colors, fonts, layout, animations)
