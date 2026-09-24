@@ -1,0 +1,30 @@
+{%- assign asset_v = site.time | date: '%s' -%}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<script>
+  /* Apply the saved light/dark choice before the page paints, so it never flashes. */
+  (function () {
+    var root = document.documentElement;
+    root.classList.add("js");
+    try {
+      var theme = localStorage.getItem("theme");
+      if (theme === "light" || theme === "dark") root.setAttribute("data-theme", theme);
+    } catch (e) {}
+  })();
+</script>
+<meta name="theme-color" content="#faf7f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16140f" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="{{ '/assets/fonts/newsreader-latin-opsz-normal.woff2' | relative_url }}" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{ '/assets/css/main.css' | relative_url }}?v={{ asset_v }}">
+<link rel="icon" href="{{ '/assets/images/favicon.svg' | relative_url }}" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{ '/assets/images/apple-touch-icon.png' | relative_url }}">
+{% seo %}
+{% feed_meta %}
+<script src="{{ '/assets/js/theme.js' | relative_url }}?v={{ asset_v }}" defer></script>
+{%- if page.hero %}
+<script src="{{ '/assets/js/hero.js' | relative_url }}?v={{ asset_v }}" defer></script>
+{%- endif %}
+{%- if page.math %}
+{% include katex.html %}
+{%- endif %}

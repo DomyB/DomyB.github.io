@@ -1,0 +1,20 @@
+# The topics of the blog, in menu order.
+#
+# - slug: the word you put in a post's front matter, e.g. `topic: economics`
+# - name: how the topic is shown on the site
+# - description: the one-liner shown on the home page and the topic page
+#
+# To add a topic: add an entry here, then copy topics/life.md to
+# topics/<slug>.md and change `topic:` and `permalink:` inside it.
+
+- slug: economics
+  name: Economics
+  description: Markets, policy, and the ideas behind how economies work.
+
+- slug: ai
+  name: AI
+  description: What artificial intelligence can do, what it can't, and what it changes.
+
+- slug: life
+  name: Life
+  description: Personal notes, lessons learned, and everything in between.

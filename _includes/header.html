@@ -1,0 +1,35 @@
+{%- assign hd_topic = page.topic | downcase | strip -%}
+<header class="site-header">
+  <div class="wrap site-header__inner">
+    <a class="site-title" href="{{ '/' | relative_url }}"{% if page.url == '/' %} aria-current="page"{% endif %}>{{ site.title }}</a>
+
+    <nav class="site-nav" aria-label="Main">
+      <ul role="list">
+        {%- for hd_t in site.data.topics %}
+        {%- assign hd_url = '/' | append: hd_t.slug | append: '/' %}
+        <li><a class="nav-link topic--{{ hd_t.slug }}{% if page.url != hd_url and hd_topic == hd_t.slug %} is-active{% endif %}" href="{{ hd_url | relative_url }}"{% if page.url == hd_url %} aria-current="page"{% endif %}>{{ hd_t.name }}</a></li>
+        {%- endfor %}
+        <li><a class="nav-link" href="{{ '/about/' | relative_url }}"{% if page.url == '/about/' %} aria-current="page"{% endif %}>About</a></li>
+      </ul>
+    </nav>
+
+    <button class="theme-toggle" type="button" aria-label="Dark theme" aria-pressed="false" hidden>
+      <svg class="theme-toggle__icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+        <g class="theme-toggle__sun">
+          <circle cx="12" cy="12" r="4.5" fill="currentColor"/>
+          <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="12" y1="1.5" x2="12" y2="3.5"/>
+            <line x1="12" y1="20.5" x2="12" y2="22.5"/>
+            <line x1="4.57" y1="4.57" x2="5.99" y2="5.99"/>
+            <line x1="18.01" y1="18.01" x2="19.43" y2="19.43"/>
+            <line x1="1.5" y1="12" x2="3.5" y2="12"/>
+            <line x1="20.5" y1="12" x2="22.5" y2="12"/>
+            <line x1="4.57" y1="19.43" x2="5.99" y2="18.01"/>
+            <line x1="18.01" y1="5.99" x2="19.43" y2="4.57"/>
+          </g>
+        </g>
+        <path class="theme-toggle__moon" d="M20.5 13.2A8.5 8.5 0 1 1 10.8 3.5a6.6 6.6 0 0 0 9.7 9.7z" fill="currentColor"/>
+      </svg>
+    </button>
+  </div>
+</header>

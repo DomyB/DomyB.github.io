@@ -1,0 +1,37 @@
+---
+layout: default
+title: All posts
+description: Every post on the blog, newest first.
+permalink: /archive/
+---
+<div class="wrap wrap--narrow">
+  <header class="page-header">
+    <h1 class="page-title">All posts</h1>
+    <p class="page-lede">Every post on the blog, newest first.</p>
+  </header>
+
+  {%- assign ar_years = site.posts | group_by_exp: "ar_item", "ar_item.date | date: '%Y'" %}
+  {%- for ar_year in ar_years %}
+  <section class="archive-year" aria-labelledby="year-{{ ar_year.name }}">
+    <h2 id="year-{{ ar_year.name }}" class="archive-year__title">{{ ar_year.name }}</h2>
+    <ul class="archive-list" role="list">
+      {%- for ar_post in ar_year.items %}
+      {%- assign ar_slug = ar_post.topic | downcase | strip %}
+      {%- assign ar_topic = site.data.topics | where: "slug", ar_slug | first %}
+      <li class="archive-item{% if ar_topic %} topic--{{ ar_topic.slug }}{% endif %}">
+        <time class="archive-item__date" datetime="{{ ar_post.date | date_to_xmlschema }}">{{ ar_post.date | date: "%b %-d" }}</time>
+        <a class="archive-item__title" href="{{ ar_post.url | relative_url }}" style="view-transition-name: {{ ar_post.id | slugify | prepend: 't-' }}">{{ ar_post.title | replace: "<", "&lt;" | smartify | escape_once }}</a>
+        {%- if ar_topic %}
+        <span class="archive-item__topic">{{ ar_topic.name }}</span>
+        {%- endif %}
+      </li>
+      {%- endfor %}
+    </ul>
+  </section>
+  {%- else %}
+  <div class="empty-state">
+    <p class="empty-state__title">No posts yet.</p>
+    <p>The first one is on its way.</p>
+  </div>
+  {%- endfor %}
+</div>

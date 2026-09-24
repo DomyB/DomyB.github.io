@@ -1,0 +1,14 @@
+---
+layout: default
+---
+<article class="page wrap wrap--narrow">
+  <header class="page-header">
+    <h1 class="page-title">{{ page.title | replace: "<", "&lt;" | smartify | escape_once }}</h1>
+    {%- if page.description %}
+    <p class="page-lede">{{ page.description | replace: "<", "&lt;" | smartify | escape_once }}</p>
+    {%- endif %}
+  </header>
+  <div class="prose">
+    {{ content }}
+  </div>
+</article>

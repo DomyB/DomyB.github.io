@@ -1,0 +1,15 @@
+{%- comment -%}
+  The [All] [Economics] [AI] [Life] buttons on the home and topic pages.
+  (Variables start with tc_ because Liquid shares them with the page that includes this file.)
+{%- endcomment -%}
+<nav class="topic-chips" aria-label="Browse by topic">
+  <ul role="list">
+    <li><a class="chip chip--all" href="{{ '/' | relative_url }}"{% if page.url == '/' %} aria-current="page"{% endif %}>All</a></li>
+    {%- for tc_t in site.data.topics %}
+    {%- assign tc_url = '/' | append: tc_t.slug | append: '/' %}
+    {%- assign tc_count = 0 %}
+    {%- for tc_post in site.posts %}{% assign tc_ps = tc_post.topic | downcase | strip %}{% if tc_ps == tc_t.slug %}{% assign tc_count = tc_count | plus: 1 %}{% endif %}{% endfor %}
+    <li><a class="chip topic--{{ tc_t.slug }}" href="{{ tc_url | relative_url }}"{% if page.url == tc_url %} aria-current="page"{% endif %}>{{ tc_t.name }}{% if tc_count > 0 %}<span class="chip__count">{{ tc_count }}<span class="visually-hidden"> {% if tc_count == 1 %}post{% else %}posts{% endif %}</span></span>{% endif %}</a></li>
+    {%- endfor %}
+  </ul>
+</nav>

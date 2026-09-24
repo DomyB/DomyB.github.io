@@ -1,0 +1,27 @@
+{%- comment -%}
+  A list of post cards.
+  Usage: {% include post-list.html posts=site.posts topic="ai" limit=10 heading="h3" %}
+  Only `posts` is required. `topic` keeps just that topic's posts.
+  (Variables start with pl_ because Liquid shares them with the page that includes this file.)
+{%- endcomment -%}
+{%- assign pl_want = include.topic | downcase | strip -%}
+{%- assign pl_limit = include.limit | default: 1000 -%}
+{%- assign pl_h = include.heading | default: 'h2' -%}
+{%- assign pl_shown = 0 -%}
+<ul class="post-list" role="list">
+{%- for pl_post in include.posts -%}
+  {%- assign pl_topic = pl_post.topic | downcase | strip -%}
+  {%- if pl_want != "" and pl_topic != pl_want %}{% continue %}{% endif -%}
+  {%- if pl_shown >= pl_limit %}{% break %}{% endif -%}
+  {%- assign pl_shown = pl_shown | plus: 1 -%}
+  {%- assign pl_vt = pl_post.id | slugify | prepend: 't-' %}
+  <li class="post-card{% if pl_topic != '' %} topic--{{ pl_topic }}{% endif %}">
+    {% include post-meta.html post=pl_post %}
+    <{{ pl_h }} class="post-card__title" style="view-transition-name: {{ pl_vt }}"><a href="{{ pl_post.url | relative_url }}">{{ pl_post.title | replace: "<", "&lt;" | smartify | escape_once }}</a></{{ pl_h }}>
+    {%- assign pl_excerpt = pl_post.description | replace: "<", "&lt;" | smartify | default: pl_post.excerpt | strip_html | normalize_whitespace | truncatewords: 40 | escape_once %}
+    {%- if pl_excerpt != "" %}
+    <p class="post-card__excerpt">{{ pl_excerpt }}</p>
+    {%- endif %}
+  </li>
+{%- endfor %}
+</ul>

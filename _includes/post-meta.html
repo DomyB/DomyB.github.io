@@ -1,0 +1,20 @@
+{%- comment -%}
+  The small line above a post title: TOPIC · date · reading time.
+  Usage: {% include post-meta.html post=post %}
+  (Variables start with pm_ because Liquid shares them with the page that includes this file.)
+{%- endcomment -%}
+{%- assign pm_post = include.post -%}
+{%- assign pm_slug = pm_post.topic | downcase | strip -%}
+{%- assign pm_topic = site.data.topics | where: "slug", pm_slug | first -%}
+{%- assign pm_words = pm_post.content | strip_html | number_of_words -%}
+{%- assign pm_minutes = pm_words | plus: 100 | divided_by: 200 -%}
+{%- if pm_minutes < 1 %}{% assign pm_minutes = 1 %}{% endif -%}
+<p class="post-meta">
+  {%- if pm_topic %}
+  <a class="topic-label topic--{{ pm_topic.slug }}" href="{{ '/' | append: pm_topic.slug | append: '/' | relative_url }}">{{ pm_topic.name }}</a>
+  <span class="post-meta__sep" aria-hidden="true">·</span>
+  {%- endif %}
+  <time datetime="{{ pm_post.date | date_to_xmlschema }}">{{ pm_post.date | date: "%b %-d, %Y" }}</time>
+  <span class="post-meta__sep" aria-hidden="true">·</span>
+  <span>{{ pm_minutes }} min read</span>
+</p>

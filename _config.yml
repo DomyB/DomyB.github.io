@@ -1,0 +1,95 @@
+# -----------------------------------------------------------------------------
+#  Blog settings
+#  Change the text below to rename the blog or rewrite its intro.
+#  After editing this file, the live site updates within a minute or two.
+# -----------------------------------------------------------------------------
+
+title: Domenico Bencivenga
+tagline: Notes on Economics, AI & Life
+description: >-
+  Essays and notes by Domenico Bencivenga about economics,
+  artificial intelligence, and life.
+intro: Essays and notes by Domenico.
+
+author:
+  name: Domenico Bencivenga
+  url: https://github.com/DomyB
+
+github_username: DomyB
+
+social:
+  name: Domenico Bencivenga
+  links:
+    - https://github.com/DomyB
+
+lang: en
+locale: en_US
+
+# Where the site lives. Leave these alone unless you move the blog.
+url: "https://domyb.github.io"
+baseurl: ""
+
+# Post addresses look like /2026/09/welcome-to-my-blog/
+permalink: /:year/:month/:title/
+
+# -----------------------------------------------------------------------------
+#  Build settings (you normally don't need to touch anything below)
+# -----------------------------------------------------------------------------
+
+# This blog has its own design, so don't apply GitHub's default theme.
+theme: null
+
+# Publish every post in _posts/, even if its date looks "in the future"
+# because of time zones.
+future: true
+
+# A typo in a post's front matter stops the build (GitHub emails you and the
+# Actions tab shows a red ✗) instead of silently publishing a broken post.
+strict_front_matter: true
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+  footnote_backlink: "&#8617;&#xFE0E;"
+
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+# GitHub Pages always turns these plugins on; these settings keep them tidy.
+titles_from_headings:
+  strip_title: true
+optional_front_matter:
+  remove_originals: true
+readme_index:
+  enabled: false
+
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post
+  - scope:
+      path: ""
+      type: pages
+    values:
+      layout: page
+  - scope:
+      path: ""
+    values:
+      image: /assets/images/social-card.png
+
+# Files that belong to the repository but not to the website.
+exclude:
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+  - CNAME
+  - vendor/
+  - node_modules/
+  - .bundle/
+  - .jekyll-cache/
+  - .sass-cache/

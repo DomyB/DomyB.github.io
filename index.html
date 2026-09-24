@@ -1,0 +1,50 @@
+---
+layout: default
+hero: true
+---
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero__art">
+    <canvas class="hero__canvas" role="img" aria-label="Animated illustration: a market price chart that turns into a neural network and back again."></canvas>
+  </div>
+  <div class="wrap hero__text">
+    <p class="hero__eyebrow">
+      <span>Economics &times; AI &times; Life</span>
+      <span class="hero__hint hero__hint--pointer">Move your cursor over the chart</span>
+      <span class="hero__hint hero__hint--touch">Tap the chart</span>
+    </p>
+    <h1 id="hero-title" class="hero__title">Notes on <em class="topic--economics">Economics</em>, <em class="topic--ai">AI</em> &amp;&nbsp;<em class="topic--life">Life</em></h1>
+    <p class="hero__intro">{{ site.intro }}</p>
+  </div>
+</section>
+
+<div class="wrap home-body">
+  {% include topic-chips.html %}
+
+  <section class="home-section" aria-labelledby="latest-title">
+    <h2 id="latest-title" class="section-title">Latest</h2>
+    {%- if site.posts.size > 0 %}
+    {% include post-list.html posts=site.posts limit=10 heading="h3" %}
+    <p class="more-link-wrap"><a class="more-link" href="{{ '/archive/' | relative_url }}">Browse all posts <span aria-hidden="true">→</span></a></p>
+    {%- else %}
+    <div class="empty-state">
+      <p class="empty-state__title">No posts yet.</p>
+      <p>The first one is on its way.</p>
+    </div>
+    {%- endif %}
+  </section>
+
+  <section class="home-section" aria-labelledby="topics-title">
+    <h2 id="topics-title" class="section-title">What I write about</h2>
+    <ul class="topic-grid" role="list">
+      {%- for ix_t in site.data.topics %}
+      {%- assign ix_count = 0 %}
+      {%- for ix_post in site.posts %}{% assign ix_ps = ix_post.topic | downcase | strip %}{% if ix_ps == ix_t.slug %}{% assign ix_count = ix_count | plus: 1 %}{% endif %}{% endfor %}
+      <li class="topic-card topic--{{ ix_t.slug }}">
+        <h3 class="topic-card__title"><a href="{{ '/' | append: ix_t.slug | append: '/' | relative_url }}">{{ ix_t.name }}</a></h3>
+        <p class="topic-card__text">{{ ix_t.description }}</p>
+        <p class="topic-card__count">{% if ix_count == 0 %}Coming soon{% elsif ix_count == 1 %}1 post{% else %}{{ ix_count }} posts{% endif %} <span aria-hidden="true">→</span></p>
+      </li>
+      {%- endfor %}
+    </ul>
+  </section>
+</div>

@@ -1,0 +1,32 @@
+---
+layout: default
+---
+{%- assign tp_slug = page.topic | downcase | strip -%}
+{%- assign tp_topic = site.data.topics | where: "slug", tp_slug | first -%}
+{%- assign tp_count = 0 -%}
+{%- for tp_post in site.posts -%}
+  {%- assign tp_ps = tp_post.topic | downcase | strip -%}
+  {%- if tp_ps == tp_slug %}{% assign tp_count = tp_count | plus: 1 %}{% endif -%}
+{%- endfor -%}
+<div class="wrap">
+  <header class="page-header topic-header topic--{{ tp_slug }}">
+    <p class="eyebrow">Topic</p>
+    <h1 class="page-title topic-header__title">{{ tp_topic.name | default: page.title }}</h1>
+    {%- if tp_topic.description %}
+    <p class="page-lede">{{ tp_topic.description }}</p>
+    {%- endif %}
+  </header>
+
+  {% include topic-chips.html %}
+
+  <section class="topic-posts" aria-label="Posts about {{ tp_topic.name | default: page.title }}">
+    {%- if tp_count > 0 %}
+    {% include post-list.html posts=site.posts topic=tp_slug %}
+    {%- else %}
+    <div class="empty-state topic--{{ tp_slug }}">
+      <p class="empty-state__title">Nothing here yet.</p>
+      <p>The first post about {{ tp_topic.name | default: page.title }} is on its way. Meanwhile, <a href="{{ '/' | relative_url }}">see the latest posts</a>.</p>
+    </div>
+    {%- endif %}
+  </section>
+</div>

@@ -1,0 +1,40 @@
+---
+layout: default
+---
+{%- assign po_slug = page.topic | downcase | strip -%}
+{%- assign po_topic = site.data.topics | where: "slug", po_slug | first -%}
+<article class="post wrap wrap--narrow{% if po_topic %} topic--{{ po_topic.slug }}{% endif %}">
+  <header class="post-header">
+    {% include post-meta.html post=page %}
+    <h1 class="post-title" style="view-transition-name: {{ page.id | slugify | prepend: 't-' }}">{{ page.title | replace: "<", "&lt;" | smartify | escape_once }}</h1>
+    {%- if page.description %}
+    <p class="post-lede">{{ page.description | replace: "<", "&lt;" | smartify | escape_once }}</p>
+    {%- endif %}
+  </header>
+
+  <div class="post-content prose{% if page.dropcap == false %} no-dropcap{% endif %}">
+    {{ content }}
+  </div>
+
+  <footer class="post-footer">
+    {%- if po_topic %}
+    <a class="more-link" href="{{ '/' | append: po_topic.slug | append: '/' | relative_url }}">More in {{ po_topic.name }} <span aria-hidden="true">→</span></a>
+    {%- endif %}
+    {%- if page.previous or page.next %}
+    <nav class="post-nav" aria-label="More posts">
+      {%- if page.previous %}
+      <a class="post-nav__link post-nav__link--prev" href="{{ page.previous.url | relative_url }}">
+        <span class="post-nav__label"><span aria-hidden="true">←</span> Older</span>
+        <span class="post-nav__title">{{ page.previous.title | replace: "<", "&lt;" | smartify | escape_once }}</span>
+      </a>
+      {%- endif %}
+      {%- if page.next %}
+      <a class="post-nav__link post-nav__link--next" href="{{ page.next.url | relative_url }}">
+        <span class="post-nav__label">Newer <span aria-hidden="true">→</span></span>
+        <span class="post-nav__title">{{ page.next.title | replace: "<", "&lt;" | smartify | escape_once }}</span>
+      </a>
+      {%- endif %}
+    </nav>
+    {%- endif %}
+  </footer>
+</article>
