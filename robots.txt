@@ -4,5 +4,6 @@ sitemap: false
 ---
 User-agent: *
 Allow: /
+Disallow: /studio/
 
 Sitemap: {{ '/sitemap.xml' | absolute_url }}

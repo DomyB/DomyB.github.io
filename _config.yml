@@ -97,3 +97,6 @@ exclude:
   - .bundle/
   - .jekyll-cache/
   - .sass-cache/
+  - studio-src/
+  - package.json
+  - package-lock.json

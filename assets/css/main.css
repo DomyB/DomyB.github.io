@@ -53,15 +53,16 @@
   --shadow-rgb: 31 29 26;
   --grain-opacity: 0.045;
 
-  /* One color per topic (checked for color-blind safety and contrast) */
-  --economics: #0c7b60;
-  --ai: #4b3fa8;
-  --life: #a4461f;
+  /* Brand colors (checked for color-blind safety and contrast). Each subject's
+     own color comes from _data/topics.yml, via assets/css/topics.css. */
+  --green: #0c7b60;
+  --indigo: #4b3fa8;
+  --terracotta: #a4461f;
 
-  /* Defaults that topic classes override */
+  /* Defaults that subject classes override */
   --topic: var(--text);
   --on-topic: var(--bg);
-  --sel: var(--ai);
+  --sel: var(--indigo);
 
   /* Type */
   --font-serif: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
@@ -94,9 +95,9 @@
     --focus: #8980e8;
     --shadow-rgb: 0 0 0;
     --grain-opacity: 0.05;
-    --economics: #3ba888;
-    --ai: #8980e8;
-    --life: #d8743a;
+    --green: #3ba888;
+    --indigo: #8980e8;
+    --terracotta: #d8743a;
   }
 }
 
@@ -113,14 +114,10 @@
   --focus: #8980e8;
   --shadow-rgb: 0 0 0;
   --grain-opacity: 0.05;
-  --economics: #3ba888;
-  --ai: #8980e8;
-  --life: #d8743a;
+  --green: #3ba888;
+  --indigo: #8980e8;
+  --terracotta: #d8743a;
 }
-
-.topic--economics { --topic: var(--economics); --sel: var(--economics); }
-.topic--ai        { --topic: var(--ai);        --sel: var(--ai); }
-.topic--life      { --topic: var(--life);      --sel: var(--life); }
 
 
 /* 3. Base -------------------------------------------------------------------- */
@@ -481,7 +478,7 @@ html:not(.js) .hero__text {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
-  background: var(--life);
+  background: var(--terracotta);
   animation: hint-pulse 2.4s ease-in-out infinite;
 }
 
@@ -564,10 +561,6 @@ html:not(.js) .hero__text {
   transition: background-color 0.25s, transform 0.3s var(--ease-out);
 }
 
-.chip--all::before {
-  background: conic-gradient(var(--economics) 0 33.3%, var(--ai) 0 66.6%, var(--life) 0);
-}
-
 .chip__count {
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
@@ -591,11 +584,6 @@ html:not(.js) .hero__text {
 .chip[aria-current="page"]::before {
   background: var(--on-topic);
   transform: scale(1.15);
-}
-
-.chip--all:hover::before,
-.chip--all[aria-current="page"]::before {
-  background: conic-gradient(var(--economics) 0 33.3%, var(--ai) 0 66.6%, var(--life) 0);
 }
 
 .chip:hover .chip__count,
@@ -1042,7 +1030,7 @@ html:not(.js) .hero__text {
 }
 
 .page .prose {
-  --link-accent: var(--ai);
+  --link-accent: var(--indigo);
 }
 
 .prose > :first-child {
@@ -1210,20 +1198,20 @@ html:not(.js) .hero__text {
 .prose .highlight .kn,
 .prose .highlight .kr,
 .prose .highlight .kt,
-.prose .highlight .nt { color: var(--ai); font-weight: 600; }
+.prose .highlight .nt { color: var(--indigo); font-weight: 600; }
 .prose .highlight .s,
 .prose .highlight .s1,
 .prose .highlight .s2,
 .prose .highlight .sb,
 .prose .highlight .sx,
-.prose .highlight .na { color: var(--economics); }
+.prose .highlight .na { color: var(--green); }
 .prose .highlight .m,
 .prose .highlight .mi,
 .prose .highlight .mf,
 .prose .highlight .mh,
 .prose .highlight .no,
 .prose .highlight .nb,
-.prose .highlight .bp { color: var(--life); }
+.prose .highlight .bp { color: var(--terracotta); }
 .prose .highlight .nf,
 .prose .highlight .nc,
 .prose .highlight .fm { font-weight: 600; }
@@ -1410,14 +1398,14 @@ html:not(.js) .hero__text {
 
 .not-found__line {
   fill: none;
-  stroke: var(--economics);
+  stroke: var(--green);
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .not-found__dot {
-  fill: var(--life);
+  fill: var(--terracotta);
 }
 
 .not-found__links {
@@ -1611,13 +1599,9 @@ html.theme-switching::view-transition-new(root) {
 
 /* 18. Network page & connections --------------------------------------------- */
 
-.nav-link--network::after {
-  background: linear-gradient(90deg, var(--economics), var(--ai), var(--life));
-}
-
 .network__header .page-title em {
   font-weight: 450;
-  color: var(--ai);
+  color: var(--indigo);
 }
 
 .network__bar {
@@ -1804,7 +1788,7 @@ html:not(.js) .network__bar {
   font: 600 0.85rem/1.4 var(--font-sans);
   color: var(--text);
   text-decoration: none;
-  border-bottom: 2px solid var(--ai);
+  border-bottom: 2px solid var(--indigo);
 }
 
 .network-editor {

@@ -12,3 +12,6 @@ Gemfile.lock
 # OS clutter
 .DS_Store
 Thumbs.db
+
+# The Studio's build tools (studio-src/), installed with `npm install`
+node_modules/

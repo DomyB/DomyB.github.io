@@ -1,23 +1,28 @@
-# The topics of the blog, in menu order.
+# The subjects of the blog, in menu order. The Studio (/studio/) edits this
+# file for you, but you can also change it by hand:
 #
-# - slug: the word you put in a post's front matter, e.g. `topic: economics`
-# - name: how the topic is shown on the site
-# - description: the one-liner shown on the home page and the topic page
+# - slug: the short name used in posts (`topic: economics`) and in the address
+# - name: how the subject is shown on the site
+# - description: the one-liner shown on the home page and the subject's page
+# - color / color_dark: the subject's color in the light and dark themes
+# - connects: (optional) other subjects or posts it links to on the Network
 #
-# - connects: (optional) other subjects or posts this subject is linked to on
-#   the Network page, e.g. `connects: [ai]`
-#
-# To add a topic: add an entry here, then copy topics/life.md to
-# topics/<slug>.md and change `title:`, `topic:` and `permalink:` inside it.
+# Every subject also needs a page: topics/<slug>.md (copy topics/life.md).
 
 - slug: economics
   name: Economics
   description: Markets, policy, and the ideas behind how economies work.
+  color: "#0c7b60"
+  color_dark: "#3ba888"
 
 - slug: ai
   name: AI
   description: What artificial intelligence can do, what it can't, and what it changes.
+  color: "#4b3fa8"
+  color_dark: "#8980e8"
 
 - slug: life
   name: Life
   description: Personal notes, lessons learned, and everything in between.
+  color: "#a4461f"
+  color_dark: "#d8743a"

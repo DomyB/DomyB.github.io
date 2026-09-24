@@ -22,7 +22,7 @@ permalink: /archive/
         <time class="archive-item__date" datetime="{{ ar_post.date | date_to_xmlschema }}">{{ ar_post.date | date: "%b %-d" }}</time>
         <a class="archive-item__title" href="{{ ar_post.url | relative_url }}" style="view-transition-name: {{ ar_post.id | slugify | prepend: 't-' }}">{{ ar_post.title | replace: "<", "&lt;" | smartify | escape_once }}</a>
         {%- if ar_topic %}
-        <span class="archive-item__topic">{{ ar_topic.name }}</span>
+        <span class="archive-item__topic">{{ ar_topic.name | escape_once }}</span>
         {%- endif %}
       </li>
       {%- endfor %}

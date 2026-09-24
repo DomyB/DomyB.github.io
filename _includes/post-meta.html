@@ -11,7 +11,7 @@
 {%- if pm_minutes < 1 %}{% assign pm_minutes = 1 %}{% endif -%}
 <p class="post-meta">
   {%- if pm_topic %}
-  <a class="topic-label topic--{{ pm_topic.slug }}" href="{{ '/' | append: pm_topic.slug | append: '/' | relative_url }}">{{ pm_topic.name }}</a>
+  <a class="topic-label topic--{{ pm_topic.slug }}" href="{{ '/' | append: pm_topic.slug | append: '/' | relative_url }}">{{ pm_topic.name | escape_once }}</a>
   <span class="post-meta__sep" aria-hidden="true">·</span>
   {%- endif %}
   <time datetime="{{ pm_post.date | date_to_xmlschema }}">{{ pm_post.date | date: "%b %-d, %Y" }}</time>

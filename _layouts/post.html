@@ -19,7 +19,7 @@ layout: default
   <footer class="post-footer">
     {% include post-connections.html post=page %}
     {%- if po_topic %}
-    <p class="post-footer__more"><a class="more-link" href="{{ '/' | append: po_topic.slug | append: '/' | relative_url }}">More in {{ po_topic.name }} <span aria-hidden="true">→</span></a></p>
+    <p class="post-footer__more"><a class="more-link" href="{{ '/' | append: po_topic.slug | append: '/' | relative_url }}">More in {{ po_topic.name | escape_once }} <span aria-hidden="true">→</span></a></p>
     {%- endif %}
     {%- if page.previous or page.next %}
     <nav class="post-nav" aria-label="More posts">

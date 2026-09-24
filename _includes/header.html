@@ -7,7 +7,7 @@
       <ul role="list">
         {%- for hd_t in site.data.topics %}
         {%- assign hd_url = '/' | append: hd_t.slug | append: '/' %}
-        <li><a class="nav-link topic--{{ hd_t.slug }}{% if page.url != hd_url and hd_topic == hd_t.slug %} is-active{% endif %}" href="{{ hd_url | relative_url }}"{% if page.url == hd_url %} aria-current="page"{% endif %}>{{ hd_t.name }}</a></li>
+        <li><a class="nav-link topic--{{ hd_t.slug }}{% if page.url != hd_url and hd_topic == hd_t.slug %} is-active{% endif %}" href="{{ hd_url | relative_url }}"{% if page.url == hd_url %} aria-current="page"{% endif %}>{{ hd_t.name | escape_once }}</a></li>
         {%- endfor %}
         <li><a class="nav-link nav-link--network" href="{{ '/network/' | relative_url }}"{% if page.url == '/network/' %} aria-current="page"{% endif %}>Network</a></li>
         <li><a class="nav-link" href="{{ '/about/' | relative_url }}"{% if page.url == '/about/' %} aria-current="page"{% endif %}>About</a></li>

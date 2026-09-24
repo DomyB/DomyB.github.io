@@ -4,7 +4,7 @@
    with signal pulses (life) running along it. Points shy away from the pointer,
    and moving or tapping sends new pulses. The animation pauses when it is off
    screen and shows a single still frame when the visitor prefers reduced motion.
-   Colors come from the CSS variables --economics, --ai and --life. */
+   Colors come from the brand CSS variables --green, --indigo and --terracotta. */
 (function () {
   "use strict";
 
@@ -74,9 +74,9 @@
   function readColors() {
     var s = getComputedStyle(root);
     colors = {
-      economics: parseColor(s.getPropertyValue("--economics").trim(), "#0c7b60"),
-      ai: parseColor(s.getPropertyValue("--ai").trim(), "#4b3fa8"),
-      life: parseColor(s.getPropertyValue("--life").trim(), "#a4461f"),
+      economics: parseColor(s.getPropertyValue("--green").trim(), "#0c7b60"),
+      ai: parseColor(s.getPropertyValue("--indigo").trim(), "#4b3fa8"),
+      life: parseColor(s.getPropertyValue("--terracotta").trim(), "#a4461f"),
       muted: parseColor(s.getPropertyValue("--muted").trim(), "#6b645b"),
       rule: parseColor(s.getPropertyValue("--rule-strong").trim(), "#cfc5b5"),
       bg: parseColor(s.getPropertyValue("--bg").trim(), "#faf7f2")

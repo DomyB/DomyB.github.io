@@ -11,21 +11,21 @@ layout: default
 <div class="wrap">
   <header class="page-header topic-header topic--{{ tp_slug }}">
     <p class="eyebrow">Topic</p>
-    <h1 class="page-title topic-header__title">{{ tp_topic.name | default: page.title }}</h1>
+    <h1 class="page-title topic-header__title">{{ tp_topic.name | default: page.title | escape_once }}</h1>
     {%- if tp_topic.description %}
-    <p class="page-lede">{{ tp_topic.description }}</p>
+    <p class="page-lede">{{ tp_topic.description | escape_once }}</p>
     {%- endif %}
   </header>
 
   {% include topic-chips.html %}
 
-  <section class="topic-posts" aria-label="Posts about {{ tp_topic.name | default: page.title }}">
+  <section class="topic-posts" aria-label="Posts about {{ tp_topic.name | default: page.title | escape_once }}">
     {%- if tp_count > 0 %}
     {% include post-list.html posts=site.posts topic=tp_slug %}
     {%- else %}
     <div class="empty-state topic--{{ tp_slug }}">
       <p class="empty-state__title">Nothing here yet.</p>
-      <p>The first post about {{ tp_topic.name | default: page.title }} is on its way. Meanwhile, <a href="{{ '/' | relative_url }}">see the latest posts</a>.</p>
+      <p>The first post about {{ tp_topic.name | default: page.title | escape_once }} is on its way. Meanwhile, <a href="{{ '/' | relative_url }}">see the latest posts</a>.</p>
     </div>
     {%- endif %}
   </section>

@@ -40,8 +40,8 @@ hero: true
       {%- assign ix_count = 0 %}
       {%- for ix_post in site.posts %}{% assign ix_ps = ix_post.topic | downcase | strip %}{% if ix_ps == ix_t.slug %}{% assign ix_count = ix_count | plus: 1 %}{% endif %}{% endfor %}
       <li class="topic-card topic--{{ ix_t.slug }}">
-        <h3 class="topic-card__title"><a href="{{ '/' | append: ix_t.slug | append: '/' | relative_url }}">{{ ix_t.name }}</a></h3>
-        <p class="topic-card__text">{{ ix_t.description }}</p>
+        <h3 class="topic-card__title"><a href="{{ '/' | append: ix_t.slug | append: '/' | relative_url }}">{{ ix_t.name | escape_once }}</a></h3>
+        <p class="topic-card__text">{{ ix_t.description | escape_once }}</p>
         <p class="topic-card__count">{% if ix_count == 0 %}Coming soon{% elsif ix_count == 1 %}1 post{% else %}{{ ix_count }} posts{% endif %} <span aria-hidden="true">→</span></p>
       </li>
       {%- endfor %}

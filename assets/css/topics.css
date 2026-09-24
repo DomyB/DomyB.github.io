@@ -1,0 +1,39 @@
+---
+# Generated from _data/topics.yml: one color per subject, in both themes.
+layout: null
+sitemap: false
+---
+{%- assign tc_all = site.data.topics -%}
+:root {
+{%- for tc_t in tc_all %}
+  --{{ tc_t.slug }}: {{ tc_t.color | default: "#6b645b" }};
+{%- endfor %}
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+{%- for tc_t in tc_all %}
+    --{{ tc_t.slug }}: {{ tc_t.color_dark | default: tc_t.color | default: "#a59c8e" }};
+{%- endfor %}
+  }
+}
+
+:root[data-theme="dark"] {
+{%- for tc_t in tc_all %}
+  --{{ tc_t.slug }}: {{ tc_t.color_dark | default: tc_t.color | default: "#a59c8e" }};
+{%- endfor %}
+}
+{% for tc_t in tc_all %}
+.topic--{{ tc_t.slug }} { --topic: var(--{{ tc_t.slug }}); --sel: var(--{{ tc_t.slug }}); }
+{%- endfor %}
+
+/* The "All" chip and the Network link blend every subject's color. */
+.chip--all::before,
+.chip--all:hover::before,
+.chip--all[aria-current="page"]::before {
+  background: conic-gradient({% for tc_t in tc_all %}var(--{{ tc_t.slug }}) {{ forloop.index0 | times: 100 | divided_by: tc_all.size }}% {{ forloop.index | times: 100 | divided_by: tc_all.size }}%{% unless forloop.last %}, {% endunless %}{% endfor %});
+}
+
+.nav-link--network::after {
+  background: linear-gradient(90deg{% for tc_t in tc_all %}, var(--{{ tc_t.slug }}){% endfor %}{% if tc_all.size < 2 %}, var(--indigo){% endif %});
+}

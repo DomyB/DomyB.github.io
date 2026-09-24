@@ -1,0 +1,78 @@
+---
+layout: null
+sitemap: false
+permalink: /studio/
+---
+{%- comment -%}
+  The Studio: a private app for writing posts and managing the blog.
+  The app itself is built from studio-src/ into studio/app/ (see studio-src/README.md).
+{%- endcomment -%}
+{%- assign st_v = site.time | date: '%s' -%}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="color-scheme" content="light dark">
+  <title>Studio · {{ site.title }}</title>
+  <script src="{{ '/studio/theme-init.js' | relative_url }}?v={{ st_v }}"></script>
+  <link rel="preload" href="{{ '/assets/fonts/newsreader-latin-opsz-normal.woff2' | relative_url }}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{{ '/assets/css/main.css' | relative_url }}?v={{ st_v }}">
+  <link rel="stylesheet" href="{{ '/assets/css/topics.css' | relative_url }}?v={{ st_v }}">
+  <link rel="stylesheet" href="{{ '/studio/studio.css' | relative_url }}?v={{ st_v }}">
+  <link rel="icon" href="{{ '/assets/images/favicon.svg' | relative_url }}" type="image/svg+xml">
+  <script src="{{ '/assets/js/theme.js' | relative_url }}?v={{ st_v }}" defer></script>
+  <script src="{{ '/assets/js/network.js' | relative_url }}?v={{ st_v }}" defer></script>
+  <script type="module" src="{{ '/studio/app/main.js' | relative_url }}?v={{ st_v }}"></script>
+</head>
+<body class="studio">
+  <a class="skip-link" href="#st-main">Skip to content</a>
+
+  <header class="st-top" hidden>
+    <a class="st-brand" href="#/posts" aria-label="Studio home">
+      <svg viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">
+        <rect class="st-logo__bg" width="64" height="64" rx="15"/>
+        <polyline class="st-logo__line" points="12,46 24,33 33,39 50,19"/>
+        <circle class="st-logo__node" cx="24" cy="33" r="3.6"/>
+        <circle class="st-logo__node" cx="33" cy="39" r="3.6"/>
+        <circle class="st-logo__dot" cx="50" cy="19" r="6"/>
+      </svg>
+      <span class="st-brand__name">Studio</span>
+    </a>
+    <nav class="st-tabs" aria-label="Studio">
+      <a class="st-tab" href="#/posts" data-view="posts">Posts</a>
+      <a class="st-tab" href="#/network" data-view="network">Network</a>
+      <a class="st-tab" href="#/subjects" data-view="subjects">Subjects</a>
+    </nav>
+    <div class="st-top__end">
+      <a class="st-top__blog" href="{{ '/' | relative_url }}" target="_blank" rel="noopener">View blog <span aria-hidden="true">↗</span></a>
+      <button class="theme-toggle" type="button" aria-label="Dark theme" aria-pressed="false" hidden>
+        <svg class="theme-toggle__icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+          <g class="theme-toggle__sun">
+            <circle cx="12" cy="12" r="4.5" fill="currentColor"/>
+            <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <line x1="12" y1="1.5" x2="12" y2="3.5"/><line x1="12" y1="20.5" x2="12" y2="22.5"/>
+              <line x1="4.57" y1="4.57" x2="5.99" y2="5.99"/><line x1="18.01" y1="18.01" x2="19.43" y2="19.43"/>
+              <line x1="1.5" y1="12" x2="3.5" y2="12"/><line x1="20.5" y1="12" x2="22.5" y2="12"/>
+              <line x1="4.57" y1="19.43" x2="5.99" y2="18.01"/><line x1="18.01" y1="5.99" x2="19.43" y2="4.57"/>
+            </g>
+          </g>
+          <path class="theme-toggle__moon" d="M20.5 13.2A8.5 8.5 0 1 1 10.8 3.5a6.6 6.6 0 0 0 9.7 9.7z" fill="currentColor"/>
+        </svg>
+      </button>
+      <button class="st-account" type="button" aria-haspopup="true" aria-expanded="false"></button>
+    </div>
+  </header>
+
+  <main id="st-main" class="st-main" tabindex="-1">
+    <p class="st-loading">Loading the Studio…</p>
+  </main>
+
+  <div class="st-toasts" role="status" aria-live="polite"></div>
+
+  <noscript><p class="st-loading">The Studio needs JavaScript to run.</p></noscript>
+</body>
+</html>

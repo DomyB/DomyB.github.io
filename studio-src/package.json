@@ -1,0 +1,25 @@
+{
+  "name": "blog-studio",
+  "private": true,
+  "description": "The Studio: a writing and management app for the blog. `npm run build` writes the app into ../studio/app/.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch"
+  },
+  "dependencies": {
+    "@tiptap/core": "3.31.3",
+    "@tiptap/extension-image": "3.31.3",
+    "@tiptap/extension-paragraph": "3.31.3",
+    "@tiptap/extension-table": "3.31.3",
+    "@tiptap/extensions": "3.31.3",
+    "@tiptap/markdown": "3.31.3",
+    "@tiptap/pm": "3.31.3",
+    "@tiptap/starter-kit": "3.31.3",
+    "js-yaml": "^4.1.0",
+    "katex": "0.18.9"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

@@ -15,7 +15,7 @@
     {%- if cn_t.slug == cn_main %}{% continue %}{% endif -%}
     {%- assign cn_tc = cn_t.connects | join: "," | downcase | replace: " ", "" | split: "," -%}
     {%- if cn_list contains cn_t.slug or cn_tc contains cn_slug or cn_tc contains cn_key %}
-    <li><a class="chip topic--{{ cn_t.slug }}" href="{{ '/' | append: cn_t.slug | append: '/' | relative_url }}">{{ cn_t.name }}</a></li>
+    <li><a class="chip topic--{{ cn_t.slug }}" href="{{ '/' | append: cn_t.slug | append: '/' | relative_url }}">{{ cn_t.name | escape_once }}</a></li>
     {%- endif -%}
   {%- endfor -%}
   {%- for cn_p in site.posts -%}

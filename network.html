@@ -21,7 +21,7 @@ network: true
   <div class="network__bar">
     <ul class="network__legend" role="list">
       {%- for nw_t in site.data.topics %}
-      <li class="network__legend-item topic--{{ nw_t.slug }}">{{ nw_t.name }}</li>
+      <li class="network__legend-item topic--{{ nw_t.slug }}">{{ nw_t.name | escape_once }}</li>
       {%- endfor %}
       <li class="network__legend-item network__legend-item--post">Post</li>
       <li class="network__legend-item network__legend-item--line">Connection</li>
@@ -69,7 +69,7 @@ network: true
         {%- endfor %}
       {%- endcapture %}
       <section class="network-index__topic topic--{{ nw_t.slug }}" aria-labelledby="ni-{{ nw_t.slug }}">
-        <h3 id="ni-{{ nw_t.slug }}" class="network-index__title"><a href="{{ '/' | append: nw_t.slug | append: '/' | relative_url }}">{{ nw_t.name }}</a></h3>
+        <h3 id="ni-{{ nw_t.slug }}" class="network-index__title"><a href="{{ '/' | append: nw_t.slug | append: '/' | relative_url }}">{{ nw_t.name | escape_once }}</a></h3>
         {%- if ni_count > 0 %}
         <ul class="network-index__posts" role="list">{{ ni_items }}
         </ul>
@@ -81,7 +81,7 @@ network: true
           {%- if ni_o.slug == nw_t.slug %}{% continue %}{% endif %}
           {%- assign ni_oconn = ni_o.connects | join: "," | downcase | replace: " ", "" | split: "," %}
           {%- if ni_tconn contains ni_o.slug or ni_oconn contains nw_t.slug %}
-            {%- capture ni_linked %}{{ ni_linked }}{% if ni_linked != "" %}, {% endif %}<a href="{{ '/' | append: ni_o.slug | append: '/' | relative_url }}">{{ ni_o.name }}</a>{% endcapture %}
+            {%- capture ni_linked %}{{ ni_linked }}{% if ni_linked != "" %}, {% endif %}<a href="{{ '/' | append: ni_o.slug | append: '/' | relative_url }}">{{ ni_o.name | escape_once }}</a>{% endcapture %}
           {%- endif %}
         {%- endfor %}
         {%- if ni_linked != "" %}
