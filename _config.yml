@@ -17,6 +17,10 @@ author:
 
 github_username: DomyB
 
+# The blog's repository (used by the "Open the file on GitHub" links on the
+# Network page's edit mode).
+repository: DomyB/DomyB.github.io
+
 social:
   name: Domenico Bencivenga
   links:

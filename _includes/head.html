@@ -25,6 +25,9 @@
 {%- if page.hero %}
 <script src="{{ '/assets/js/hero.js' | relative_url }}?v={{ asset_v }}" defer></script>
 {%- endif %}
+{%- if page.network %}
+<script src="{{ '/assets/js/network.js' | relative_url }}?v={{ asset_v }}" defer></script>
+{%- endif %}
 {%- if page.math %}
 {% include katex.html %}
 {%- endif %}

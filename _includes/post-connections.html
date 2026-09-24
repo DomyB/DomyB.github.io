@@ -1,0 +1,40 @@
+{%- comment -%}
+  The "Connected to" block at the end of a post: the subjects and posts this
+  post is connected to (either side can declare the connection), plus a link
+  to the post's spot on the Network page.
+  Usage: {% include post-connections.html post=page %}
+  (Variables start with cn_ because Liquid shares them with the page that includes this file.)
+{%- endcomment -%}
+{%- assign cn_self = include.post -%}
+{%- assign cn_slug = cn_self.slug | downcase -%}
+{%- assign cn_key = cn_self.date | date: "%Y-%m-%d" | append: "-" | append: cn_self.slug | downcase -%}
+{%- assign cn_main = cn_self.topic | downcase | strip -%}
+{%- assign cn_list = cn_self.connections | join: "," | downcase | replace: " ", "" | split: "," -%}
+{%- capture cn_items -%}
+  {%- for cn_t in site.data.topics -%}
+    {%- if cn_t.slug == cn_main %}{% continue %}{% endif -%}
+    {%- assign cn_tc = cn_t.connects | join: "," | downcase | replace: " ", "" | split: "," -%}
+    {%- if cn_list contains cn_t.slug or cn_tc contains cn_slug or cn_tc contains cn_key %}
+    <li><a class="chip topic--{{ cn_t.slug }}" href="{{ '/' | append: cn_t.slug | append: '/' | relative_url }}">{{ cn_t.name }}</a></li>
+    {%- endif -%}
+  {%- endfor -%}
+  {%- for cn_p in site.posts -%}
+    {%- if cn_p.url == cn_self.url %}{% continue %}{% endif -%}
+    {%- assign cn_p_slug = cn_p.slug | downcase -%}
+    {%- assign cn_p_key = cn_p.date | date: "%Y-%m-%d" | append: "-" | append: cn_p.slug | downcase -%}
+    {%- assign cn_pl = cn_p.connections | join: "," | downcase | replace: " ", "" | split: "," -%}
+    {%- if cn_list contains cn_p_slug or cn_list contains cn_p_key or cn_pl contains cn_slug or cn_pl contains cn_key %}
+    <li><a class="chip chip--post topic--{{ cn_p.topic | downcase | strip }}" href="{{ cn_p.url | relative_url }}">{{ cn_p.title | replace: "<", "&lt;" | smartify | escape_once }}</a></li>
+    {%- endif -%}
+  {%- endfor -%}
+{%- endcapture -%}
+{%- assign cn_items = cn_items | strip -%}
+<section class="post-connections" aria-labelledby="post-connections-title">
+  <h2 id="post-connections-title" class="post-connections__title">{% if cn_items != "" %}Connected to{% else %}Connections{% endif %}</h2>
+  {%- if cn_items != "" %}
+  <ul class="post-connections__list" role="list">
+    {{ cn_items }}
+  </ul>
+  {%- endif %}
+  <p class="post-connections__network"><a class="more-link topic--ai" href="{{ '/network/' | relative_url }}#{{ cn_slug }}">See it on the network <span aria-hidden="true">→</span></a></p>
+</section>

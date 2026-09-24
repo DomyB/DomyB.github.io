@@ -1,0 +1,107 @@
+---
+layout: default
+title: Network
+description: Every subject and post on the blog as a living neural network, and how they connect.
+permalink: /network/
+network: true
+---
+{%- comment -%}
+  The interactive map is drawn by assets/js/network.js from the JSON below.
+  Connections come from `connections:` in each post and `connects:` in
+  _data/topics.yml. (Variables start with nw_/ni_ because Liquid shares them
+  with the includes.)
+{%- endcomment -%}
+<div class="wrap network">
+  <header class="page-header network__header">
+    <p class="eyebrow">The network</p>
+    <h1 class="page-title">How it all <em>connects</em></h1>
+    <p class="page-lede">Every subject and post on this blog as a living neural network. The big neurons are subjects, the small ones are posts, and every line is a connection.</p>
+  </header>
+
+  <div class="network__bar">
+    <ul class="network__legend" role="list">
+      {%- for nw_t in site.data.topics %}
+      <li class="network__legend-item topic--{{ nw_t.slug }}">{{ nw_t.name }}</li>
+      {%- endfor %}
+      <li class="network__legend-item network__legend-item--post">Post</li>
+      <li class="network__legend-item network__legend-item--line">Connection</li>
+    </ul>
+    <p class="network__hint">
+      <span class="network__hint--pointer">Drag the dots · hover to trace connections · click to open</span>
+      <span class="network__hint--touch">Tap a dot to see its connections · tap it again to open</span>
+    </p>
+  </div>
+
+  <div class="network__stage">
+    <canvas role="img" aria-label="An interactive map of the blog's subjects and posts and the connections between them. The same information is listed below."></canvas>
+    <div class="network__card" hidden></div>
+  </div>
+
+  <aside class="network-editor" aria-labelledby="network-editor-title" hidden>
+    <h2 id="network-editor-title" class="network-editor__title">Edit connections</h2>
+    <p>Drag from one dot to another to connect them; drag between them again to disconnect. Dashed lines are drafts. They only exist in this browser until you copy each line below into its file on GitHub. The site updates about a minute after you save.</p>
+    <p class="network-editor__status" role="status" aria-live="polite"></p>
+    <p class="network-editor__empty">No changes yet.</p>
+    <ol class="network-editor__changes"></ol>
+    <div class="network-editor__unknown" hidden>
+      <p><strong>Connections that don't match anything</strong> (check the spelling):</p>
+      <ul></ul>
+    </div>
+    <button type="button" class="network-editor__button network-editor__discard" hidden>Discard all drafts</button>
+  </aside>
+
+  <section class="network-index" aria-labelledby="network-index-title">
+    <h2 id="network-index-title" class="section-title">Subjects and their posts</h2>
+    <div class="network-index__grid">
+      {%- for nw_t in site.data.topics %}
+      {%- assign ni_tconn = nw_t.connects | join: "," | downcase | replace: " ", "" | split: "," %}
+      {%- assign ni_count = 0 %}
+      {%- capture ni_items %}
+        {%- for ni_p in site.posts %}
+          {%- assign ni_main = ni_p.topic | downcase | strip %}
+          {%- assign ni_list = ni_p.connections | join: "," | downcase | replace: " ", "" | split: "," %}
+          {%- assign ni_key = ni_p.date | date: "%Y-%m-%d" | append: "-" | append: ni_p.slug | downcase %}
+          {%- assign ni_slug = ni_p.slug | downcase %}
+          {%- if ni_main == nw_t.slug or ni_list contains nw_t.slug or ni_tconn contains ni_slug or ni_tconn contains ni_key %}
+          {%- assign ni_count = ni_count | plus: 1 %}
+        <li><a href="{{ ni_p.url | relative_url }}">{{ ni_p.title | replace: "<", "&lt;" | smartify | escape_once }}</a></li>
+          {%- endif %}
+        {%- endfor %}
+      {%- endcapture %}
+      <section class="network-index__topic topic--{{ nw_t.slug }}" aria-labelledby="ni-{{ nw_t.slug }}">
+        <h3 id="ni-{{ nw_t.slug }}" class="network-index__title"><a href="{{ '/' | append: nw_t.slug | append: '/' | relative_url }}">{{ nw_t.name }}</a></h3>
+        {%- if ni_count > 0 %}
+        <ul class="network-index__posts" role="list">{{ ni_items }}
+        </ul>
+        {%- else %}
+        <p class="network-index__empty">No posts yet.</p>
+        {%- endif %}
+        {%- assign ni_linked = "" %}
+        {%- for ni_o in site.data.topics %}
+          {%- if ni_o.slug == nw_t.slug %}{% continue %}{% endif %}
+          {%- assign ni_oconn = ni_o.connects | join: "," | downcase | replace: " ", "" | split: "," %}
+          {%- if ni_tconn contains ni_o.slug or ni_oconn contains nw_t.slug %}
+            {%- capture ni_linked %}{{ ni_linked }}{% if ni_linked != "" %}, {% endif %}<a href="{{ '/' | append: ni_o.slug | append: '/' | relative_url }}">{{ ni_o.name }}</a>{% endcapture %}
+          {%- endif %}
+        {%- endfor %}
+        {%- if ni_linked != "" %}
+        <p class="network-index__linked">Linked subjects: {{ ni_linked }}</p>
+        {%- endif %}
+      </section>
+      {%- endfor %}
+    </div>
+  </section>
+</div>
+
+<script type="application/json" id="network-data">
+{%- capture nw_json -%}
+{"repo": {{ site.repository | jsonify }}, "branch": "main",
+"topics": [{%- for nw_t in site.data.topics -%}
+{"key": {{ nw_t.slug | jsonify }}, "name": {{ nw_t.name | jsonify }}, "description": {{ nw_t.description | jsonify }}, "url": {{ '/' | append: nw_t.slug | append: '/' | relative_url | jsonify }}, "connects": {{ nw_t.connects | jsonify }}}{% unless forloop.last %},{% endunless %}
+{%- endfor -%}],
+"posts": [{%- for nw_p in site.posts -%}
+{"key": {{ nw_p.slug | jsonify }}, "fileKey": {{ nw_p.date | date: "%Y-%m-%d" | append: "-" | append: nw_p.slug | jsonify }}, "file": {{ nw_p.path | jsonify }}, "title": {{ nw_p.title | jsonify }}, "url": {{ nw_p.url | relative_url | jsonify }}, "date": {{ nw_p.date | date: "%b %-d, %Y" | jsonify }}, "topic": {{ nw_p.topic | jsonify }}, "connections": {{ nw_p.connections | jsonify }}, "description": {{ nw_p.description | default: nw_p.excerpt | strip_html | normalize_whitespace | truncatewords: 28 | jsonify }}}{% unless forloop.last %},{% endunless %}
+{%- endfor -%}]}
+{%- endcapture -%}
+{{ nw_json | replace: "</", "<\/" }}
+</script>

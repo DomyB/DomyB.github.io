@@ -17,8 +17,13 @@ every time a change lands on the `main` branch, the site updates by itself in ab
    (lowercase words, separated by hyphens, no spaces).
 3. Paste the template below, write your post, and click **Commit changes**.
 
-That's it. After about a minute the post is on the home page and on its topic page.
+That's it. After about a minute the post is on the home page, on its topic page and on the Network.
 To watch it publish, open the **Actions** tab and look for *pages build and deployment*.
+
+**To fix or update a post later:** open it in `_posts`, click the ✏️ pencil icon, edit, and commit again.
+
+> 💡 **Tip:** for longer posts, press the <kbd>.</kbd> key on this repository's page. That opens a full
+> editor in the browser (github.dev) with a Markdown preview. Save your changes there with *Commit & Push*.
 
 ### Post template
 
@@ -26,6 +31,7 @@ To watch it publish, open the **Actions** tab and look for *pages build and depl
 ---
 title: "Why inflation matters more than you think"
 topic: economics
+connections: [ai, welcome-to-my-blog]
 description: "One sentence that appears on the home page and when the link is shared."
 ---
 
@@ -36,7 +42,8 @@ Your first paragraph goes here. It starts with a big decorative first letter.
 More text...
 ```
 
-- **`topic`** must be one of `economics`, `ai` or `life`.
+- **`topic`** is the post's main subject: `economics`, `ai` or `life`.
+- **`connections`** is optional. It lists other subjects and posts this post relates to, and those links appear on the Network page (see below) and at the end of the post.
 - **`description`** is optional but recommended.
 - The **date** comes from the file name.
 
@@ -48,6 +55,50 @@ Optional extras for the front matter (the part between the `---` lines):
 | `image: /assets/images/my-chart.png` | Uses your own picture when the link is shared |
 | `dropcap: false` | Turns off the big first letter |
 | `published: false` | Hides the post without deleting it |
+
+---
+
+## 🕸️ The Network page
+
+**https://domyb.github.io/network/** draws the whole blog as a living neural network:
+
+- the **big neurons** are your subjects;
+- the **small ones** are your posts;
+- every **line** is a connection.
+
+Visitors can drag the dots, hover or tap them to light up their connections, and click to open a post.
+
+### Connecting things
+
+Every post is automatically connected to its main `topic`. To connect it to more things, add a
+`connections:` line to its front matter. Use subject names or other posts' names: a post's name is its
+file name without the date, so `2026-09-24-welcome-to-my-blog.md` is `welcome-to-my-blog`.
+
+```yaml
+connections: [ai, life, welcome-to-my-blog]
+```
+
+- Connections work both ways. If post A lists post B, both posts show the link.
+- To connect two **subjects** to each other, add `connects:` under a subject in `_data/topics.yml`:
+
+  ```yaml
+  - slug: economics
+    name: Economics
+    description: Markets, policy, and the ideas behind how economies work.
+    connects: [ai]
+  ```
+
+### Drawing connections with the mouse (edit mode)
+
+Open **https://domyb.github.io/network/?edit** (note the `?edit` at the end). Visitors never see this mode.
+
+1. Drag from one dot to another to connect them. Drag between them again to disconnect.
+   Dashed lines are drafts, and they're saved in your browser.
+2. Under the network, the page shows the exact line to paste, for example `connections: [ai, life]`.
+   It also has a button that opens the right file on GitHub.
+3. Paste the line into the file and commit. A minute later the connection is live, and the draft disappears.
+
+Edit mode also warns you about connection names that don't match anything, which usually means a typo.
 
 ---
 
@@ -115,7 +166,7 @@ If an equation contains `{{` or `{%`, wrap it in `{% raw %}` … `{% endraw %}`.
 | Your bio on the About page | `about.md` (there's a note inside showing where) |
 | Blog name, tagline and intro line | `_config.yml` |
 | The big headline on the home page | `index.html` (the `<h1>` line) |
-| Topic names and descriptions | `_data/topics.yml` |
+| Topic names, descriptions and subject-to-subject links | `_data/topics.yml` |
 | Colors and fonts | the top of `assets/css/main.css` |
 | The picture shown when a link is shared | `assets/images/social-card.png` (1200 × 630) |
 
@@ -134,6 +185,7 @@ If an equation contains `{{` or `{%`, wrap it in `{% raw %}` … `{% endraw %}`.
 - **Animated home page chart.** A market price line morphs into a neural network and back, with signal pulses running along it. It reacts to the mouse and to taps, and it pauses when off screen. Visitors who turn off animations see a still picture instead.
 - **Light and dark themes.** The site follows the visitor's system setting, and the toggle switches themes with a circular reveal.
 - **Smooth page transitions.** Post titles glide from the list into the article in browsers that support it.
+- **The Network:** an interactive neural network of your subjects and posts at `/network/`, with an edit mode for drawing connections.
 - **Topic pages and an archive:** `/economics/`, `/ai/`, `/life/` and `/archive/`.
 - **Feeds, sharing and search:** an RSS feed at `/feed.xml`, a sitemap, and link previews for WhatsApp, LinkedIn and X.
 - **Details:** reading time, footnotes, code highlighting and math.
@@ -147,11 +199,12 @@ _data/topics.yml the topics: names, descriptions, order
 about.md         the About page
 index.html       the home page
 archive.html     the list of all posts
+network.html     the Network page
 topics/          the Economics / AI / Life pages
 _layouts/        page templates (post, page, topic…)
 _includes/       reusable pieces (header, footer, post list…)
 assets/css/      the design (colors, fonts, layout, animations)
-assets/js/       the theme switch and the animated chart
+assets/js/       the theme switch, the animated chart and the Network
 assets/fonts/    the Newsreader typeface
 assets/images/   icons, the social card and your images
 _config.yml      site settings

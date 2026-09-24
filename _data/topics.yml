@@ -4,8 +4,11 @@
 # - name: how the topic is shown on the site
 # - description: the one-liner shown on the home page and the topic page
 #
+# - connects: (optional) other subjects or posts this subject is linked to on
+#   the Network page, e.g. `connects: [ai]`
+#
 # To add a topic: add an entry here, then copy topics/life.md to
-# topics/<slug>.md and change `topic:` and `permalink:` inside it.
+# topics/<slug>.md and change `title:`, `topic:` and `permalink:` inside it.
 
 - slug: economics
   name: Economics
