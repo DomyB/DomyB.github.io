@@ -37,3 +37,4 @@
   name: WIFE
   color: "#a55e05"
   color_dark: "#ff9300"
+  connects: [life]
