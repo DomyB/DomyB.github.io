@@ -162,6 +162,75 @@ export function confirmDialog({ title, message, confirm = "Confirm", cancel = "C
   )).then((ok) => ok === true);
 }
 
+/* ---------- a text box with suggestions ---------- */
+
+// Type to filter, ↑/↓ to move, Enter to pick, Escape to close.
+//   choices(query) -> [{ key, label, kind, topic }]   onPick(choice)
+let comboCount = 0;
+export function combobox({ label, placeholder, empty, choices, onPick, focusKey }) {
+  const id = `st-combo-${++comboCount}`;
+  let active = -1;
+  const input = h("input", {
+    class: "st-input", type: "text", placeholder, autocomplete: "off", spellcheck: "false",
+    role: "combobox", "aria-expanded": "false", "aria-controls": `${id}-list`, "aria-autocomplete": "list",
+    "aria-label": label, dataset: focusKey ? { focus: focusKey } : undefined
+  });
+  const list = h("ul", { class: "st-options", id: `${id}-list`, role: "listbox", "aria-label": "Suggestions", hidden: true });
+
+  function close() {
+    list.hidden = true;
+    active = -1;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+  }
+
+  function open() {
+    const query = input.value.trim().toLowerCase();
+    const found = choices(query);
+    clear(list);
+    active = -1;
+    input.removeAttribute("aria-activedescendant");
+    found.forEach((c, i) => list.append(h("li", {
+      id: `${id}-${i}`, class: `st-option${c.topic ? ` topic--${c.topic}` : ""}`, role: "option", "aria-selected": "false",
+      onmousedown: (e) => {
+        e.preventDefault(); // keep the focus in the box
+        input.value = "";
+        onPick(c);
+        if (input.isConnected) open();
+      }
+    }, h("span", { class: "st-conn__dot", "aria-hidden": "true" }), h("span", { class: "st-conn__label" }, c.label), h("span", { class: "st-conn__kind" }, c.kind))));
+    if (!found.length) list.append(h("li", { class: "st-option st-option--empty" }, query ? "Nothing matches" : empty));
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    list.scrollIntoView({ block: "nearest" });
+  }
+
+  input.addEventListener("input", open);
+  input.addEventListener("focus", open);
+  input.addEventListener("blur", () => setTimeout(close, 150));
+  input.addEventListener("keydown", (e) => {
+    const items = list.querySelectorAll("[role=option]");
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (list.hidden) open();
+      if (!items.length) return;
+      active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items.forEach((item, i) => item.setAttribute("aria-selected", i === active ? "true" : "false"));
+      input.setAttribute("aria-activedescendant", items[active].id);
+      items[active].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const item = items[active >= 0 ? active : 0];
+      if (item && !list.hidden) item.dispatchEvent(new Event("mousedown"));
+    } else if (e.key === "Escape" && !list.hidden) {
+      e.stopPropagation();
+      close();
+    }
+  });
+
+  return { element: h("div", { class: "st-combo" }, input, list), input };
+}
+
 /* ---------- formatting ---------- */
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

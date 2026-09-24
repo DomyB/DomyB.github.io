@@ -6,7 +6,7 @@ import { serializePost, serializeTopics } from "../content.js";
 import { mentions, postNames, refName, resolveName, sameNames, withoutItem } from "../links.js";
 import { trackPublish } from "../publish.js";
 import { save, state } from "../store.js";
-import { clear, formatDate, h, icon, plural, toast } from "../ui.js";
+import { clear, combobox, formatDate, h, icon, plural, toast } from "../ui.js";
 
 export function renderNetwork(container) {
   if (!window.BlogNetwork) {
@@ -21,6 +21,7 @@ export function renderNetwork(container) {
   let showDrafts = false;
   let chosen = null; // { kind: "topic", id: slug } or { kind: "post", id: path }
   let saving = false;
+  let alive = true; // false once the page is left (a save can still be finishing)
   const undoStack = [];
 
   /* ---------- the working copy ---------- */
@@ -104,10 +105,13 @@ export function renderNetwork(container) {
     return out;
   }
 
+  // A post's connections as they'll be saved: its main subject is always connected, so it isn't listed.
+  const effective = (list, topic) => list.filter((name) => name !== topic);
+
   function changedPosts() {
     return state.posts.filter((p) => {
       const w = work.posts.get(p.path);
-      return w.topic !== p.topic || !sameNames(w.connections, p.connections);
+      return w.topic !== p.topic || !sameNames(effective(w.connections, w.topic), effective(p.connections, p.topic));
     });
   }
 
@@ -135,14 +139,14 @@ export function renderNetwork(container) {
         const w = work.posts.get(p.path);
         return {
           key: p.slug, fileKey: `${p.date}-${p.slug}`, file: p.path,
-          title: p.published ? p.title : `${p.title} (draft)`,
+          title: p.error ? `${p.title} (needs fixing)` : p.published ? p.title : `${p.title} (draft)`,
           url: `#/write/${encodeURIComponent(p.path)}`, date: formatDate(p.date),
           topic: w.topic, connections: w.connections, description: p.description
         };
       }),
       baseline: {
         topics: state.topics.map((t) => ({ key: t.slug, connects: t.connects })),
-        posts: posts.map((p) => ({ key: p.slug, topic: p.topic, connections: p.connections }))
+        posts: posts.map((p) => ({ key: p.slug, fileKey: `${p.date}-${p.slug}`, topic: p.topic, connections: p.connections }))
       }
     };
   }
@@ -154,7 +158,8 @@ export function renderNetwork(container) {
       const topic = state.topics.find((t) => t.slug === info.key);
       return topic ? topicItem(topic) : null;
     }
-    const post = shownPosts().find((p) => p.slug.toLowerCase() === info.key);
+    // The file tells posts with the same name apart.
+    const post = shownPosts().find((p) => (info.file ? p.path === info.file : p.slug.toLowerCase() === info.key));
     return post ? postItem(post) : null;
   }
 
@@ -271,9 +276,7 @@ export function renderNetwork(container) {
   function setMain(post, slug) {
     if (blockedBy(postItem(post))) return;
     remember();
-    const w = work.posts.get(post.path);
-    w.topic = slug;
-    w.connections = w.connections.filter((name) => name !== slug);
+    work.posts.get(post.path).topic = slug; // (the old connections stay; the main subject is left out when saving)
     const topic = state.topics.find((t) => t.slug === slug);
     say(topic ? `“${post.title}” now belongs to ${topic.name}.` : `“${post.title}” has no main subject now.`);
     changed();
@@ -307,7 +310,7 @@ export function renderNetwork(container) {
     const posts = changedPosts();
     const files = posts.map((p) => {
       const w = work.posts.get(p.path);
-      return { path: p.path, content: serializePost(Object.assign({}, p, { topic: w.topic, connections: w.connections.filter((c) => c !== w.topic) })) };
+      return { path: p.path, content: serializePost(Object.assign({}, p, { topic: w.topic, connections: effective(w.connections, w.topic) })) };
     });
     if (topicsChanged()) {
       files.push({ path: "_data/topics.yml", content: serializeTopics(state.topics.map((t) => Object.assign({}, t, { connects: work.topics.get(t.slug) }))) });
@@ -319,18 +322,20 @@ export function renderNetwork(container) {
     drawBar();
     try {
       const sha = await save(message, files);
-      work = fresh();
-      undoStack.length = 0;
-      say("");
-      net.update(networkData());
-      drawPanel();
+      if (alive) {
+        work = fresh();
+        undoStack.length = 0;
+        say("");
+        net.update(networkData());
+        drawPanel();
+      }
       if (onlyDrafts) toast("Connections saved. They'll show on the blog when the drafts are published.", { kind: "success" });
       else trackPublish(sha, { saved: "Connections saved.", live: "The network on your blog is up to date.", url: "/network/" });
     } catch (e) {
       toast(e.message, { kind: "error", timeout: 0 });
     } finally {
       saving = false;
-      drawBar();
+      if (alive) drawBar();
     }
   }
 
@@ -391,32 +396,37 @@ export function renderNetwork(container) {
     }));
   }
 
-  function addSelect(item) {
-    const taken = neighbours(item);
-    const isTaken = (other) => sameItem(other, item) || taken.some((t) => sameItem(t, other)) ||
-      (item.kind === "post" && other.kind === "topic" && mainOf(item.post) === other.topic.slug) ||
-      (item.kind === "topic" && other.kind === "post" && mainOf(other.post) === item.topic.slug);
-    const topics = state.topics.map(topicItem).filter((o) => !isTaken(o));
-    const posts = state.posts.map(postItem).filter((o) => !isTaken(o));
-    const select = h("select", {
-      class: "st-input", id: "st-net-add", dataset: { focus: "add" },
-      onchange: () => {
-        const [kind, id] = select.value.split("|");
-        const other = kind === "topic" ? topics.find((o) => o.topic.slug === id) : posts.find((o) => o.post.path === id);
-        if (!other || blockedBy(item, other)) return;
+  function addBox(item) {
+    const others = () => {
+      const taken = neighbours(item);
+      return state.topics.map(topicItem).concat(state.posts.filter((p) => !p.error).map(postItem))
+        .filter((o) => !sameItem(o, item) && !taken.some((t) => sameItem(t, o)) &&
+          !(item.kind === "post" && o.kind === "topic" && mainOf(item.post) === o.topic.slug) &&
+          !(item.kind === "topic" && o.kind === "post" && mainOf(o.post) === item.topic.slug));
+    };
+    const box = combobox({
+      label: "Add a connection",
+      placeholder: "Type a subject or post…",
+      empty: "Everything is connected already",
+      focusKey: "add",
+      choices: (query) => others()
+        .map((o) => (o.kind === "topic"
+          ? { key: `topic|${o.topic.slug}`, label: o.topic.name, kind: "Subject", topic: o.topic.slug, item: o }
+          : { key: `post|${o.post.path}`, label: o.post.title, kind: o.post.published ? "Post" : "Draft", topic: mainOf(o.post), item: o }))
+        .filter((c) => !query || c.label.toLowerCase().includes(query))
+        .slice(0, 12),
+      onPick: (choice) => {
+        if (blockedBy(item, choice.item)) return;
         remember();
-        connect(item, other);
-        say(`Connected “${itemName(item)}” and “${itemName(other)}”.`);
+        connect(item, choice.item);
+        say(`Connected “${itemName(item)}” and “${itemName(choice.item)}”.`);
         changed();
       }
-    },
-    h("option", { value: "" }, topics.length || posts.length ? "Choose a subject or post…" : "Everything is connected already"),
-    topics.length ? h("optgroup", { label: "Subjects" }, topics.map((o) => h("option", { value: `topic|${o.topic.slug}` }, o.topic.name))) : null,
-    posts.length ? h("optgroup", { label: "Posts" }, posts.map((o) => h("option", { value: `post|${o.post.path}` }, o.post.published ? o.post.title : `${o.post.title} (draft)`))) : null);
-    select.disabled = !topics.length && !posts.length;
+    });
+    box.input.id = "st-net-add";
     return h("div", { class: "st-settings__group" },
       h("label", { class: "st-field__label", for: "st-net-add" }, "Add a connection"),
-      select);
+      box.element);
   }
 
   function unknownSection(list) {
@@ -479,7 +489,7 @@ export function renderNetwork(container) {
       h("div", { class: "st-settings__group" },
         h("p", { class: "st-field__label" }, "Connected to"),
         connectionList(item)),
-      addSelect(item),
+      addBox(item),
       unknownSection(mine)
     ];
   }
@@ -502,7 +512,7 @@ export function renderNetwork(container) {
       h("div", { class: "st-settings__group" },
         h("p", { class: "st-field__label" }, "Also connected to"),
         connectionList(item)),
-      addSelect(item),
+      addBox(item),
       unknownSection(mine),
       h("a", { class: "st-hint st-link", href: "#/subjects" }, "Edit subjects, their names and colors")
     ];
@@ -539,6 +549,7 @@ export function renderNetwork(container) {
     dirty: () => changeCount() > 0 && !saving,
     leaveMessage: "Your connection changes haven't been saved. If you leave now, they'll be lost.",
     destroy() {
+      alive = false;
       document.removeEventListener("keydown", onKey);
       if (net) net.destroy();
     }

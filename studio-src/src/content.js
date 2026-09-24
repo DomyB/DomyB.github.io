@@ -2,8 +2,22 @@
 // the subjects list (_data/topics.yml) and each subject's page.
 import yaml from "js-yaml";
 
-const FRONT_MATTER = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+// Jekyll reads front matter as YAML 1.1, where yes/no/on/off (in any case)
+// also mean true/false. The Studio reads and writes them the same way.
+const BOOL_11 = new yaml.Type("tag:yaml.org,2002:bool", {
+  kind: "scalar",
+  resolve: (data) => /^(?:yes|no|true|false|on|off)$/i.test(data),
+  construct: (data) => /^(?:yes|true|on)$/i.test(data),
+  predicate: (value) => typeof value === "boolean",
+  represent: { lowercase: (value) => (value ? "true" : "false") },
+  defaultStyle: "lowercase"
+});
+const SCHEMA = yaml.CORE_SCHEMA.extend({ implicit: [BOOL_11] });
+const LOAD = { schema: SCHEMA, json: true }; // json: a repeated key keeps its last value, like Jekyll
+
+const FRONT_MATTER = /^---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/;
 const SLUG_LIKE = /^[a-z0-9][a-z0-9-]*$/;
+const YAML_WORD = /^(?:yes|no|true|false|on|off|null|y|n)$/i; // written unquoted, YAML would misread these
 const POST_KEYS = ["title", "topic", "connections", "description", "image", "math", "dropcap", "published"];
 const TOPIC_KEYS = ["slug", "name", "description", "color", "color_dark", "connects"];
 
@@ -41,20 +55,24 @@ function quote(value) {
   return JSON.stringify(String(value)); // a JSON string is also a valid YAML string
 }
 
+function plainName(value) {
+  return SLUG_LIKE.test(value) && !YAML_WORD.test(value);
+}
+
 function listValue(items) {
-  return "[" + items.map((i) => (SLUG_LIKE.test(i) ? i : quote(i))).join(", ") + "]";
+  return "[" + items.map((i) => (plainName(i) ? i : quote(i))).join(", ") + "]";
 }
 
 // Plain text when YAML can't misread it, otherwise quoted.
 function text(value) {
   const s = String(value);
   const plain = /^[A-Za-z0-9À-ÿ][A-Za-z0-9À-ÿ ,.'’()&!?-]*$/.test(s) && !/\s$/.test(s) &&
-    !/^(true|false|yes|no|on|off|null|~)$/i.test(s) && !/^[-+.\d]/.test(s);
+    !YAML_WORD.test(s) && !/^[-+.\d]/.test(s);
   return plain ? s : quote(s);
 }
 
 function dumpExtra(key, value) {
-  return yaml.dump({ [key]: value }, { schema: yaml.CORE_SCHEMA, lineWidth: -1, flowLevel: 1 }).trimEnd();
+  return yaml.dump({ [key]: value }, { schema: SCHEMA, lineWidth: -1, flowLevel: 1 }).trimEnd();
 }
 
 /* ---------- posts ---------- */
@@ -67,21 +85,26 @@ export function parsePost(path, source) {
   const slug = match ? match[2] : file.replace(/\.[^.]+$/, "");
   let fm = {};
   let body = source;
-  let error = null;
+  let error = null; // set when the settings can't be read: the Studio then edits the file as it is
   const front = source.match(FRONT_MATTER);
   if (front) {
     try {
-      fm = yaml.load(front[1], { schema: yaml.CORE_SCHEMA }) || {};
+      const data = yaml.load(front[1] || "", LOAD);
+      if (data != null && (typeof data !== "object" || Array.isArray(data))) {
+        error = "the settings aren't written as “name: value” lines";
+      } else {
+        fm = data || {};
+      }
     } catch (e) {
       error = e.message;
     }
-    if (typeof fm !== "object" || Array.isArray(fm)) fm = {};
     body = source.slice(front[0].length).replace(/^\s*\n/, "");
   }
   return {
     path,
     date,
     slug,
+    source,
     fm,
     body,
     error,
@@ -89,7 +112,7 @@ export function parsePost(path, source) {
     topic: names(fm.topic)[0] || "",
     connections: names(fm.connections),
     description: fm.description != null ? String(fm.description) : "",
-    published: fm.published !== false,
+    published: !error && fm.published !== false,
     math: fm.math === true,
     dropcap: fm.dropcap !== false
   };
@@ -106,6 +129,7 @@ export function postUrl(post) {
 }
 
 export function serializePost(post) {
+  if (post.error) throw new Error(`“${post.title}” has a formatting problem in its settings. Open it in the Studio to fix it first.`);
   const fm = Object.assign({}, post.fm);
   const put = (key, value) => {
     if (value == null || value === "" || (Array.isArray(value) && !value.length)) delete fm[key];
@@ -122,7 +146,7 @@ export function serializePost(post) {
   const lines = keys.map((key) => {
     const value = fm[key];
     if (key === "title" || key === "description") return `${key}: ${quote(value)}`;
-    if (key === "topic" && typeof value === "string") return `topic: ${SLUG_LIKE.test(value) ? value : quote(value)}`;
+    if (key === "topic" && typeof value === "string") return `topic: ${plainName(value) ? value : quote(value)}`;
     if (key === "connections" && Array.isArray(value)) return `connections: ${listValue(value)}`;
     if (typeof value === "boolean") return `${key}: ${value}`;
     return dumpExtra(key, value);
@@ -143,15 +167,17 @@ function plainEntities(line) {
 
 // Empty paragraphs in the editor become runs of blank lines in Markdown; the
 // blog ignores them, so keep at most one. Code blocks are left as they are.
+const FENCE = /^(?:[ \t]*>)*[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/; // also inside quotes and lists
+
 export function tidyMarkdown(md) {
   const out = [];
   let fence = null;
   let blank = 0;
   String(md).split("\n").forEach((line) => {
-    const mark = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    const mark = line.match(FENCE);
     if (fence) {
       out.push(line);
-      if (mark && mark[1][0] === fence[0] && mark[1].length >= fence.length && !line.trim().slice(mark[1].length).trim()) fence = null;
+      if (mark && mark[1][0] === fence[0] && mark[1].length >= fence.length && !mark[2].trim()) fence = null;
       return;
     }
     if (mark) fence = mark[1];
@@ -166,14 +192,29 @@ export function tidyMarkdown(md) {
   return out.join("\n").replace(/^\n+/, "");
 }
 
+// Jekyll runs Liquid over every post, so {{ and {% typed as text would be read
+// as code (and could stop the blog from building). Written as {{ "{{" }} and
+// {{ "{%" }}, they show up exactly as typed.
+export function escapeLiquid(md) {
+  return String(md).replace(/\{\{|\{%/g, (m) => `{{ "${m}" }}`);
+}
+
+export function unescapeLiquid(md) {
+  return String(md).replace(/\{\{ "(\{\{|\{%)" \}\}/g, "$1");
+}
+
 // Things the visual editor can't keep exactly as written. Posts using them are
 // edited as plain text instead, so nothing is ever lost.
-export function advancedFeatures(body) {
+export function advancedFeatures(source) {
   const found = [];
+  const body = String(source).replace(/\{\{ "(?:\{\{|\{%)" \}\}/g, ""); // the Studio's own escapes are fine
   if (/\{%|\{\{/.test(body)) found.push("Liquid tags");
-  if (/\[\^[^\]]+\]/.test(body)) found.push("footnotes");
-  if (/\{:[^}]*\}/.test(body)) found.push("custom attributes like {:.caption}");
   const prose = body.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`/g, "");
+  if (/\[\^[^\]]+\]/.test(prose)) found.push("footnotes");
+  if (/\{:[^}]*\}/.test(prose)) found.push("custom attributes like {:.caption}");
+  if (/^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[[ xX]\][ \t]/m.test(prose)) found.push("task lists");
+  if (/^\*\[[^\]]+\]:/m.test(prose)) found.push("abbreviations");
+  if (/^:[ \t]+\S/m.test(prose)) found.push("definition lists");
   // (<br> in tables and &nbsp; for blank lines are written by the editor itself.)
   if (/<\/?[a-zA-Z][\w-]*(\s[^>]*)?>|<!--/.test(prose.replace(/<br\s*\/?>/gi, ""))) found.push("HTML");
   const entities = prose.replace(/^&nbsp;$/gm, "").match(/&(#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);/gi) || [];

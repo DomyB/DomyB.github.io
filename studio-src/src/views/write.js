@@ -1,14 +1,16 @@
 // "Write": the Word-like editor for one post, with its settings beside it.
 import { dropAutosave, readAutosave, writeAutosave } from "../autosave.js";
 import { SITE } from "../config.js";
-import { advancedFeatures, postPath, postUrl, serializePost, serializeTopics, slugify, tidyMarkdown } from "../content.js";
+import {
+  advancedFeatures, escapeLiquid, parsePost, postPath, postUrl, serializePost, serializeTopics, slugify, tidyMarkdown, unescapeLiquid
+} from "../content.js";
 import { createEditor, wordCount } from "../editor/editor.js";
 import { createToolbar } from "../editor/toolbar.js";
 import { postNames, postRef, resolveName } from "../links.js";
 import { trackPublish } from "../publish.js";
 import { go, rename } from "../router.js";
 import { freeSlug, postByPath, save, state } from "../store.js";
-import { clear, confirmDialog, formatDate, h, icon, openDialog, plural, timeAgo, toast, today } from "../ui.js";
+import { clear, combobox, confirmDialog, formatDate, h, icon, openDialog, plural, timeAgo, toast, today } from "../ui.js";
 
 const MAX_IMAGE_SIDE = 1600;
 
@@ -52,6 +54,79 @@ function prepareImage(file) {
   });
 }
 
+// A post whose settings (the part between the --- lines) can't be read is
+// edited as the whole file, exactly as it is, so nothing gets lost.
+function renderFile(container, post) {
+  const name = post.path.split("/").pop();
+  let dirty = false;
+  let saving = false;
+  let alive = true;
+  const grow = () => {
+    text.style.height = "auto";
+    text.style.height = `${text.scrollHeight}px`;
+  };
+  const text = h("textarea", {
+    class: "st-source", spellcheck: "false", "aria-label": `The file ${name}`,
+    oninput: () => { dirty = true; grow(); showStatus(); }
+  }, post.source);
+  const status = h("span", { class: "st-status", role: "status" });
+  const saveBtn = h("button", { class: "st-btn st-btn--primary", type: "button", onclick: saveFile }, icon("check", 18), "Save file");
+
+  function showStatus() {
+    clear(status).append(h("span", { class: "st-status__note" }, saving ? "Saving…" : dirty ? "Unsaved changes" : "Needs fixing"));
+    status.classList.toggle("is-dirty", dirty && !saving);
+  }
+
+  async function saveFile() {
+    if (saving) return;
+    const problem = parsePost(post.path, text.value).error;
+    if (problem && !(await confirmDialog({
+      title: "Still not quite right",
+      message: `The settings still can't be read (${problem.split("\n")[0]}). Save anyway?`,
+      confirm: "Save anyway"
+    }))) return;
+    saving = true;
+    saveBtn.disabled = true;
+    showStatus();
+    try {
+      const sha = await save(`Fix the settings of ${name}`, [{ path: post.path, content: text.value }]);
+      dirty = false;
+      trackPublish(sha, { saved: "File saved.", live: "Your blog is up to date." });
+      if (alive) go(`#/write/${encodeURIComponent(post.path)}`, { replace: true }); // opens normally once fixed
+    } catch (e) {
+      toast(e.message, { kind: "error", timeout: 0 });
+    } finally {
+      saving = false;
+      saveBtn.disabled = false;
+      if (alive) showStatus();
+    }
+  }
+
+  container.append(h("section", { class: "st-write", "aria-labelledby": "st-write-title" },
+    h("h1", { class: "visually-hidden", id: "st-write-title" }, `Fix ${name}`),
+    h("div", { class: "st-write__bar" },
+      h("a", { class: "st-btn st-btn--ghost", href: "#/posts" }, icon("back", 18), h("span", { class: "st-hide-small" }, "Posts")),
+      status,
+      h("div", { class: "st-write__actions" }, saveBtn)),
+    h("div", { class: "st-write__grid st-write__grid--single" },
+      h("div", { class: "st-desk" },
+        h("div", { class: "st-paper st-paper--file" },
+          h("div", { class: "st-notice st-notice--warn" },
+            icon("sparkle", 18),
+            h("div", {},
+              h("p", {}, `The settings at the top of ${name} (between the --- lines) have a formatting problem, so the Studio shows the whole file here, exactly as it is. A common cause is a title with a colon in it: put the title in quotes. Fix it and save; the post then opens in the editor again.`),
+              h("pre", { class: "st-error" }, post.error))),
+          text)))));
+  showStatus();
+  requestAnimationFrame(grow);
+  text.focus();
+  return {
+    dirty: () => dirty && !saving,
+    leaveMessage: "Your changes to this file aren't saved yet. If you leave now, they'll be lost.",
+    destroy() { alive = false; }
+  };
+}
+
 export function renderWrite(container, arg) {
   let original = !arg || arg === "new" ? null : postByPath(arg);
   if (arg && arg !== "new" && !original) {
@@ -62,6 +137,7 @@ export function renderWrite(container, arg) {
         h("a", { class: "st-btn", href: "#/posts" }, icon("back"), "Back to posts"))));
     return {};
   }
+  if (original && original.error) return renderFile(container, original);
 
   let wasPublished = !!(original && original.published);
   let key = original ? original.path : "new"; // where unsaved changes are backed up
@@ -84,6 +160,7 @@ export function renderWrite(container, arg) {
   let savedAt = null;
   let timer = null;
   let revision = 0; // counts edits, to notice typing while a save is on its way
+  let alive = true; // false once the page is left (a save can still be finishing)
   const pending = new Map(); // "/assets/images/posts/…" -> { base64, url, saved }
 
   /* ---------- the page ---------- */
@@ -128,11 +205,7 @@ export function renderWrite(container, arg) {
   const notice = h("p", { class: "st-notice", hidden: !advanced.length },
     icon("markdown", 18),
     h("span", {}, `This post uses ${advanced.join(", ")}, so it opens as Markdown text to keep everything exactly as written.`));
-  const broken = h("p", { class: "st-notice st-notice--warn", hidden: !(original && original.error) },
-    icon("sparkle", 18),
-    h("span", {}, "The settings at the top of this post's file had a formatting problem, so some of them may be missing below. Check the subject, connections and summary, then save to fix the file."));
-
-  const editor = createEditor(editorHost, advanced.length ? "" : post.body, {
+  const editor = createEditor(editorHost, advanced.length ? "" : unescapeLiquid(post.body), {
     onChange: () => {
       bodyDirty = true;
       changed();
@@ -145,7 +218,7 @@ export function renderWrite(container, arg) {
     class: "st-btn st-btn--ghost st-mode", type: "button", "aria-pressed": "false", onclick: () => toggleMode()
   }, icon("markdown", 18), h("span", { class: "st-hide-small" }, "Markdown"));
   const paper = h("article", { class: "st-paper" },
-    title, lede, h("div", { class: "st-paper__rule", "aria-hidden": "true" }), broken, notice, editorHost, source);
+    title, lede, h("div", { class: "st-paper__rule", "aria-hidden": "true" }), notice, editorHost, source);
   const counter = h("p", { class: "st-paper__count" });
 
   /* ---------- settings ---------- */
@@ -155,7 +228,6 @@ export function renderWrite(container, arg) {
     class: "st-input", id: "st-subject",
     onchange: () => {
       post.topic = subject.value;
-      post.connections = post.connections.filter((c) => c !== post.topic);
       paint();
       drawConnections();
       changed();
@@ -163,30 +235,15 @@ export function renderWrite(container, arg) {
   }, [h("option", { value: "" }, "No subject")].concat(state.topics.map((t) => h("option", { value: t.slug, selected: t.slug === post.topic }, t.name))));
 
   const connList = h("ul", { class: "st-conns", role: "list", "aria-labelledby": "st-conn-label" });
-  const options = h("ul", { class: "st-options", id: "st-conn-options", role: "listbox", hidden: true, "aria-label": "Suggestions" });
-  let active = -1;
-  const connInput = h("input", {
-    class: "st-input", type: "text", placeholder: "Add a subject or post…", autocomplete: "off",
-    role: "combobox", "aria-expanded": "false", "aria-controls": "st-conn-options", "aria-autocomplete": "list", "aria-label": "Add a connection",
-    oninput: suggest,
-    onfocus: suggest,
-    onblur: () => setTimeout(() => { options.hidden = true; connInput.setAttribute("aria-expanded", "false"); }, 150),
-    onkeydown: (e) => {
-      const items = options.querySelectorAll("[role=option]");
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        if (!items.length) return;
-        active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-        items.forEach((item, i) => item.setAttribute("aria-selected", i === active ? "true" : "false"));
-        connInput.setAttribute("aria-activedescendant", items[active].id);
-        items[active].scrollIntoView({ block: "nearest" });
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        if (items[active >= 0 ? active : 0]) items[active >= 0 ? active : 0].dispatchEvent(new Event("mousedown"));
-      } else if (e.key === "Escape") {
-        options.hidden = true;
-        connInput.setAttribute("aria-expanded", "false");
-      }
+  const conn = combobox({
+    label: "Add a connection",
+    placeholder: "Add a subject or post…",
+    empty: "Everything is connected already",
+    choices: suggestions,
+    onPick: (choice) => {
+      post.connections.push(choice.key);
+      drawConnections();
+      changed();
     }
   });
 
@@ -218,7 +275,7 @@ export function renderWrite(container, arg) {
       h("span", { class: "st-field__label", id: "st-conn-label" }, "Connections"),
       h("p", { class: "st-hint" }, "Other subjects and posts this post relates to. They show up on the network and at the end of the post."),
       connList,
-      h("div", { class: "st-combo" }, connInput, options)),
+      conn.element),
     h("div", { class: "st-settings__group" },
       h("span", { class: "st-field__label" }, "Options"),
       h("label", { class: "st-check" }, dropcap, h("span", {}, "Big first letter")),
@@ -293,7 +350,7 @@ export function renderWrite(container, arg) {
 
   function currentBody() {
     if (textMode) return source.value;
-    return bodyDirty ? tidyMarkdown(editor.getMarkdown()) : post.body;
+    return bodyDirty ? escapeLiquid(tidyMarkdown(editor.getMarkdown())) : post.body;
   }
 
   function count() {
@@ -341,7 +398,8 @@ export function renderWrite(container, arg) {
 
   function drawConnections() {
     clear(connList);
-    post.connections.forEach((name) => {
+    const shown = post.connections.filter((name) => name !== post.topic); // the main subject is always connected
+    shown.forEach((name) => {
       const target = resolveName(name);
       const topic = target && target.kind === "topic" ? target.topic : null;
       const other = target && target.kind === "post" ? target.post : null;
@@ -353,40 +411,22 @@ export function renderWrite(container, arg) {
         h("span", { class: "st-conn__kind" }, topic ? "Subject" : other ? (other.published ? "Post" : "Draft") : "Not found"),
         h("button", {
           class: "st-iconbtn st-iconbtn--small", type: "button", "aria-label": `Remove connection to ${label}`,
-          onclick: () => { post.connections = post.connections.filter((c) => c !== name); drawConnections(); changed(); connInput.focus(); }
+          onclick: () => { post.connections = post.connections.filter((c) => c !== name); drawConnections(); changed(); conn.input.focus(); }
         }, icon("close", 16))));
     });
-    if (!post.connections.length) connList.append(h("li", { class: "st-hint" }, "No connections yet."));
+    if (!shown.length) connList.append(h("li", { class: "st-hint" }, "No connections yet."));
   }
 
-  function suggest() {
-    const q = connInput.value.trim().toLowerCase();
+  function suggestions(query) {
     const has = (names) => names.some((n) => post.connections.includes(n));
-    const choices = state.topics
+    return state.topics
       .filter((t) => t.slug !== post.topic && !has([t.slug]))
       .map((t) => ({ key: t.slug, label: t.name, kind: "Subject", topic: t.slug }))
       .concat(state.posts
-        .filter((p) => (!original || p.path !== original.path) && !has(postNames(p)))
+        .filter((p) => (!original || p.path !== original.path) && !p.error && !has(postNames(p)))
         .map((p) => ({ key: postRef(p), label: p.title, kind: p.published ? "Post" : "Draft", topic: p.topic })))
-      .filter((c) => !q || c.label.toLowerCase().includes(q) || c.key.includes(q))
+      .filter((c) => !query || c.label.toLowerCase().includes(query) || c.key.includes(query))
       .slice(0, 12);
-    clear(options);
-    active = -1;
-    connInput.removeAttribute("aria-activedescendant");
-    choices.forEach((c, i) => options.append(h("li", {
-      id: `st-opt-${i}`, class: `st-option${c.topic ? ` topic--${c.topic}` : ""}`, role: "option", "aria-selected": "false",
-      onmousedown: (e) => {
-        e.preventDefault();
-        post.connections.push(c.key);
-        connInput.value = "";
-        drawConnections();
-        changed();
-        suggest();
-      }
-    }, h("span", { class: "st-conn__dot", "aria-hidden": "true" }), h("span", { class: "st-conn__label" }, c.label), h("span", { class: "st-conn__kind" }, c.kind))));
-    if (!choices.length) options.append(h("li", { class: "st-option st-option--empty" }, q ? "Nothing matches" : "Everything is connected already"));
-    options.hidden = false;
-    connInput.setAttribute("aria-expanded", "true");
   }
 
   function applyMode() {
@@ -409,7 +449,7 @@ export function renderWrite(container, arg) {
         toast(`This post uses ${found.join(", ")}, which the visual editor can't show. Keep editing it as text.`, { kind: "info", timeout: 9000 });
         return;
       }
-      editor.commands.setContent(source.value, { contentType: "markdown", emitUpdate: false });
+      editor.commands.setContent(unescapeLiquid(source.value), { contentType: "markdown", emitUpdate: false });
       textMode = false;
       bodyDirty = true;
     }
@@ -533,24 +573,35 @@ export function renderWrite(container, arg) {
       original = postByPath(path);
       wasPublished = !!(original && original.published);
       key = path;
-      dropAutosave(oldKey);
-      dropAutosave(key);
-      if (revision === rev) {
+      if (revision !== rev) {
+        // Writing went on while saving: keep the newer changes backed up, under the post's address.
+        if (alive) {
+          backup();
+        } else {
+          const later = readAutosave(oldKey);
+          if (later) writeAutosave(key, Object.assign({}, later, { base: state.shas.get(path) || null }));
+        }
+        if (oldKey !== key) dropAutosave(oldKey);
+      } else {
+        dropAutosave(oldKey);
+        dropAutosave(key);
         dirty = false;
         post.body = body;
         if (!textMode) bodyDirty = false;
-      } else {
-        backup(); // typing continued while saving: keep those changes safe
+        post.title = cleanTitle;
+        post.math = next.math;
       }
-      post.title = cleanTitle;
-      post.slug = slug;
-      post.date = path.slice(7, 17);
-      post.math = next.math;
-      math.checked = next.math;
-      slugInput.value = post.slug;
-      date.value = post.date;
+      if (revision === rev || !slugTouched) {
+        post.slug = slug;
+        post.date = path.slice(7, 17);
+      }
       slugTouched = true;
-      rename(`#/write/${encodeURIComponent(path)}`);
+      if (alive) {
+        math.checked = post.math;
+        slugInput.value = post.slug;
+        date.value = post.date;
+        rename(`#/write/${encodeURIComponent(path)}`);
+      }
       if (mode === "publish") {
         trackPublish(sha, {
           saved: before ? "Post updated." : "Post published.",
@@ -564,8 +615,10 @@ export function renderWrite(container, arg) {
       toast(e.message, { kind: "error", timeout: 0 });
     } finally {
       saving = false;
-      drawChrome();
-      showAddress();
+      if (alive) {
+        drawChrome();
+        showAddress();
+      }
     }
   }
 
@@ -593,7 +646,7 @@ export function renderWrite(container, arg) {
       dirty = false;
       if (wasPublished) trackPublish(sha, { saved: "Post deleted.", live: "The post is gone from your blog." });
       else toast("Draft deleted.", { kind: "success" });
-      go("#/posts");
+      if (alive) go("#/posts");
     } catch (e) {
       toast(e.message, { kind: "error", timeout: 0 });
     }
@@ -633,7 +686,7 @@ export function renderWrite(container, arg) {
     slugTouched = true;
     textMode = !!saved.textMode || advancedFeatures(post.body).length > 0;
     if (textMode) source.value = post.body;
-    else editor.commands.setContent(post.body, { contentType: "markdown", emitUpdate: false });
+    else editor.commands.setContent(unescapeLiquid(post.body), { contentType: "markdown", emitUpdate: false });
     bodyDirty = true;
     banner.hidden = true;
     [title, lede].forEach(grow);
@@ -676,6 +729,7 @@ export function renderWrite(container, arg) {
     dirty: () => dirty && !saving,
     leaveMessage: "Your latest changes aren't saved to your blog yet. They're backed up on this device, so you can restore them the next time you open this post.",
     destroy() {
+      alive = false;
       clearTimeout(timer);
       if (dirty) backup();
       document.removeEventListener("keydown", onKey);

@@ -37,3 +37,15 @@ export function dropAutosave(key) {
     localStorage.removeItem(PREFIX + key);
   } catch (e) {}
 }
+
+// Which posts have a backup on this device ("new" for a post never saved).
+export function autosaveKeys() {
+  const keys = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(PREFIX)) keys.push(key.slice(PREFIX.length));
+    }
+  } catch (e) {}
+  return keys;
+}

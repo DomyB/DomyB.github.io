@@ -20,7 +20,10 @@ Then commit `studio-src/` and `studio/` together. To try it locally, serve the b
 
 - **Sign-in:** a fine-grained GitHub access key limited to this repository (Contents: read and write),
   kept in `localStorage` ("Remember me") or `sessionStorage`. The page has a strict Content Security
-  Policy: scripts only from this site, network requests only to `api.github.com`.
+  Policy: scripts only from this site, network requests only to `api.github.com`. The blog's pages
+  share the Studio's origin (domyb.github.io), so a remembered key is only as safe as the scripts on
+  those pages: don't embed third-party scripts in posts on a device where you stay signed in.
+  Signing out deletes the key and the unsaved-writing backups.
 - **Loading:** `store.js` reads the branch head, the file tree and every post and `_data/topics.yml`
   through the Git Data API (only files that changed are fetched again).
 - **Saving:** `github.js` writes each change as one commit (blobs → tree → commit → move the branch,
@@ -29,11 +32,14 @@ Then commit `studio-src/` and `studio/` together. To try it locally, serve the b
 - **Publishing:** after a save, `publish.js` watches the public GitHub Pages deployments and says
   when the change is live.
 - **Posts** are Markdown with front matter, as before. `content.js` reads and writes them; unknown
-  front matter keys are kept.
+  front matter keys are kept. YAML is read the way Jekyll reads it (`yes`/`no`/`on`/`off` are
+  booleans, a repeated key keeps its last value). A post whose front matter can't be read is never
+  rewritten: it opens as the whole file, to be fixed by hand.
 - **The editor** (`editor/`) is [Tiptap](https://tiptap.dev/) with its Markdown extension, plus:
   equations (`$$…$$`, rendered with KaTeX, loaded only when needed), escaping so typed text never turns
   into Markdown by accident (`editor.js`), and a tidy-up of the saved Markdown (`tidyMarkdown` in
-  `content.js`). Posts using HTML, footnotes, Liquid or `{:…}` attributes open as plain Markdown so
+  `content.js`). `{{` and `{%` typed in the editor are saved as `{{ "{{" }}` and `{{ "{%" }}`, so
+  Jekyll's Liquid shows them as typed instead of running them. Posts using HTML, footnotes, Liquid or `{:…}` attributes open as plain Markdown so
   nothing is lost.
 - **The network** reuses the blog's own engine (`assets/js/network.js`, `BlogNetwork.mount`), in
   edit mode, with the Studio deciding what each connection changes (`views/network.js`, `links.js`).

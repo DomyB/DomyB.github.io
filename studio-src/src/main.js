@@ -1,10 +1,11 @@
 // The Studio: signs in with a GitHub access key, loads the blog's posts and
 // subjects, and shows one page at a time (see router.js for the addresses).
+import { autosaveKeys, dropAutosave } from "./autosave.js";
 import { OWNER, REPO } from "./config.js";
 import { GitHubError } from "./github.js";
 import { markShown, onRoute, parseRoute, shownHash } from "./router.js";
 import { forgetToken, load, onLoad, rememberToken, savedToken, signIn, state } from "./store.js";
-import { clear, confirmDialog, h, icon, toast } from "./ui.js";
+import { clear, confirmDialog, h, icon, plural, toast } from "./ui.js";
 import { renderNetwork } from "./views/network.js";
 import { renderPosts } from "./views/posts.js";
 import { renderSignIn } from "./views/signin.js";
@@ -82,7 +83,7 @@ async function draw() {
   const hash = location.hash;
   const { view, arg } = parseRoute(hash);
   if (!TITLES[view]) {
-    history.replaceState(null, "", "#/posts");
+    history.replaceState(history.state, "", "#/posts");
     return draw();
   }
   const mine = ++ticket;
@@ -125,23 +126,61 @@ async function canLeave() {
   });
 }
 
+// Every history entry gets a number, so a Back or Forward can be undone when
+// the person decides to stay on a page with unsaved changes.
+let position = 0;
+let leavingTo = null; // where to go without asking again (the answer was "Leave")
+
+function entryIndex() {
+  const st = history.state;
+  return st && typeof st.idx === "number" ? st.idx : null;
+}
+
+function stamp(idx) {
+  history.replaceState(Object.assign({}, history.state, { idx }), "");
+}
+
 async function onHashChange() {
   const target = location.hash;
-  if (target === shownHash()) return;
+  if (target === shownHash()) return; // (also our own step back while asking)
   if (target && !target.startsWith("#/")) {
     // An in-page link (like "Skip to content"), not a page of the Studio.
-    history.replaceState(null, "", shownHash());
+    history.replaceState(history.state, "", shownHash());
     const spot = document.getElementById(decodeURIComponent(target.slice(1)));
     if (spot) spot.focus();
     return;
   }
-  if (current && current.dirty && current.dirty()) {
-    history.replaceState(null, "", shownHash()); // stay here until the answer
-    if (!(await canLeave())) return;
-    history.pushState(null, "", target);
+  let idx = entryIndex();
+  if (idx === null) { // a new entry: a link or a typed address
+    idx = position + 1;
+    stamp(idx);
   }
+  const allowed = leavingTo === target;
+  leavingTo = null;
+  if (!allowed && current && current.dirty && current.dirty()) {
+    const back = position - idx;
+    history.go(back); // return to the page on screen while asking
+    if (!(await canLeave())) return;
+    leavingTo = target;
+    history.go(-back);
+    return;
+  }
+  position = idx;
   draw();
 }
+
+// In-page links ask before moving, so history stays as it was.
+document.addEventListener("click", async (e) => {
+  const link = e.target.closest && e.target.closest('a[href^="#/"]');
+  if (!link || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const target = link.getAttribute("href");
+  if (target === shownHash() || !current || !current.dirty || !current.dirty()) return;
+  e.preventDefault();
+  if (await canLeave()) {
+    leavingTo = target;
+    location.hash = target;
+  }
+}, true);
 
 /* ---------- account ---------- */
 
@@ -204,7 +243,19 @@ async function reload() {
 async function signOut() {
   toggleMenu(false);
   if (!(await canLeave())) return;
-  leave();
+  leave(); // (a post being written is backed up here)
+  const backups = autosaveKeys();
+  if (backups.length && !(await confirmDialog({
+    title: "Sign out?",
+    message: `Unsaved changes to ${plural(backups.length, "post are", "posts are")} kept on this device. Signing out deletes them.`,
+    confirm: "Delete them and sign out",
+    cancel: "Cancel",
+    danger: true
+  }))) {
+    draw();
+    return;
+  }
+  backups.forEach(dropAutosave);
   forgetToken();
   state.posts = [];
   state.topics = [];
@@ -243,7 +294,9 @@ function startApp() {
       }
     });
   }
-  if (!TITLES[parseRoute(location.hash).view]) history.replaceState(null, "", "#/posts");
+  if (!TITLES[parseRoute(location.hash).view]) history.replaceState(history.state, "", "#/posts");
+  position = entryIndex() === null ? 0 : entryIndex();
+  stamp(position);
   draw();
 }
 

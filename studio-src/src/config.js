@@ -18,7 +18,9 @@ export const RESERVED_SLUGS = [
   "bg", "bg-elev", "bg-sunk", "card-pad", "ease-in-out", "ease-out", "focus", "font-mono",
   "font-sans", "font-serif", "grain-opacity", "green", "gutter", "indigo", "line", "link-accent",
   "muted", "on-topic", "post", "radius", "rule", "rule-strong", "sel", "shadow", "shadow-rgb",
-  "terracotta", "text", "text-soft", "topic", "wrap", "wrap-narrow", "all"
+  "terracotta", "text", "text-soft", "topic", "wrap", "wrap-narrow", "all",
+  // YAML reads these as true/false/nothing
+  "yes", "no", "on", "off", "true", "false", "null", "y", "n"
 ];
 export const RESERVED_PREFIX = "st-";
 

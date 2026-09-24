@@ -49,6 +49,8 @@ Good to know:
   is lost. The **Markdown** button switches any post between the visual editor and the text.
 - If a file changed on GitHub while the Studio was open, the Studio won't overwrite it. It asks you to
   reload first (account menu → **Reload from GitHub**).
+- If a post's settings (the lines between `---` at the top) have a typo, the Studio opens the whole file
+  and shows where the problem is, so you can fix it without losing anything.
 
 ---
 

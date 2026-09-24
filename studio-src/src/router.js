@@ -35,7 +35,7 @@ export function markShown(hash) {
 // Go to a page. `replace` swaps the current history entry instead of adding one.
 export function go(hash, { replace = false } = {}) {
   if (replace) {
-    history.replaceState(null, "", hash);
+    history.replaceState(history.state, "", hash);
     draw();
   } else if (location.hash === hash) {
     draw();
@@ -46,6 +46,6 @@ export function go(hash, { replace = false } = {}) {
 
 // Same page, new address (nothing is redrawn).
 export function rename(hash) {
-  history.replaceState(null, "", hash);
+  history.replaceState(history.state, "", hash);
   shown = hash;
 }

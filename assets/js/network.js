@@ -151,7 +151,7 @@
       var saved = data.baseline || null, savedTopics = {}, savedPosts = {};
       if (saved) {
         (saved.topics || []).forEach(function (t) { savedTopics[String(t.key).toLowerCase()] = t; });
-        (saved.posts || []).forEach(function (p) { savedPosts[String(p.key).toLowerCase()] = p; });
+        (saved.posts || []).forEach(function (p) { savedPosts[String(p.fileKey || p.key).toLowerCase()] = p; });
       }
       (data.topics || []).forEach(function (t) {
         var node = addNode("topic", t.key, t.name, t, names(t.connects));
@@ -162,7 +162,7 @@
         var node = addNode("post", p.key, p.title, p, names(p.connections));
         node.topicKey = node.baseTopic = names(p.topic)[0] || "";
         if (saved) {
-          var was = savedPosts[node.key] || {};
+          var was = savedPosts[String(p.fileKey || p.key).toLowerCase()] || {};
           node.base = names(was.connections);
           node.baseTopic = names(was.topic)[0] || "";
         }
@@ -173,7 +173,7 @@
     }
 
     function info(n) {
-      return n ? { kind: n.kind, key: n.key, label: n.label, topic: n.topicKey } : null;
+      return n ? { kind: n.kind, key: n.key, label: n.label, topic: n.topicKey, file: (n.raw && n.raw.file) || "" } : null;
     }
 
     function currentList(n) {

@@ -70,7 +70,9 @@ export function renderPosts(container) {
         topic ? h("span", { class: "topic-label" }, topic.name) : h("span", { class: "st-muted" }, "No subject"),
         h("span", { "aria-hidden": "true" }, "·"),
         h("span", {}, formatDate(post.date)),
-        h("span", { class: `st-badge ${post.published ? "st-badge--live" : "st-badge--draft"}` }, post.published ? "Published" : "Draft"),
+        post.error
+          ? h("span", { class: "st-badge st-badge--warn" }, "Needs fixing")
+          : h("span", { class: `st-badge ${post.published ? "st-badge--live" : "st-badge--draft"}` }, post.published ? "Published" : "Draft"),
         unsaved ? h("span", { class: "st-badge st-badge--warn" }, "Unsaved changes") : null,
         post.connections.length ? h("span", { class: "st-muted" }, plural(post.connections.length, "connection", "connections")) : null),
       h("h2", { class: "st-post__title" }, h("a", { href: edit }, post.title)),
