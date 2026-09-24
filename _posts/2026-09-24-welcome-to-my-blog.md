@@ -1,7 +1,6 @@
 ---
 title: "Welcome to my blog"
 topic: life
-connections: [economics, ai]
 description: "What I'll be writing about here: economics, AI, and life."
 ---
 
