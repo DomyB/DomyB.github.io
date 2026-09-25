@@ -82,7 +82,10 @@ export function createEditor(element, markdown, { onChange, resolveImage }) {
     contentType: "markdown",
     editorProps: {
       attributes: {
-        class: "prose post-content st-editor__content",
+        // No big first letter while writing: a floating letter makes some
+        // browsers (like Safari) push the cursor and new text below it. It
+        // still shows on the blog.
+        class: "prose post-content no-dropcap st-editor__content",
         "aria-label": "Post text",
         "aria-multiline": "true",
         role: "textbox"
@@ -90,17 +93,6 @@ export function createEditor(element, markdown, { onChange, resolveImage }) {
     },
     onUpdate: ({ editor }) => onChange(editor)
   });
-
-  // While the cursor is in the first paragraph, its first letter stays normal
-  // size: the big floating first letter makes some browsers (like Safari) put
-  // the cursor and new text below it. It turns big again as soon as you move
-  // on, just as it looks on the blog.
-  const markFirst = () => {
-    const { $from } = editor.state.selection;
-    const inFirst = editor.isFocused && $from.depth > 0 && $from.index(0) === 0;
-    editor.view.dom.classList.toggle("is-writing-first", inFirst);
-  };
-  ["focus", "blur", "selectionUpdate", "update"].forEach((event) => editor.on(event, markFirst));
 
   return editor;
 }

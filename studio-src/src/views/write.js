@@ -258,7 +258,7 @@ export function renderWrite(container, arg) {
     onchange: () => { slugInput.value = post.slug; }
   });
   const address = h("p", { class: "st-address" });
-  const dropcap = h("input", { type: "checkbox", checked: post.dropcap, onchange: () => { post.dropcap = dropcap.checked; paint(); changed(); } });
+  const dropcap = h("input", { type: "checkbox", checked: post.dropcap, onchange: () => { post.dropcap = dropcap.checked; changed(); } });
   const math = h("input", { type: "checkbox", checked: post.math, onchange: () => { post.math = math.checked; changed(); } });
 
   let publishBtn = null;
@@ -278,7 +278,7 @@ export function renderWrite(container, arg) {
       conn.element),
     h("div", { class: "st-settings__group" },
       h("span", { class: "st-field__label" }, "Options"),
-      h("label", { class: "st-check" }, dropcap, h("span", {}, "Big first letter")),
+      h("label", { class: "st-check" }, dropcap, h("span", {}, "Big first letter (shows on the blog, not while you write)")),
       h("label", { class: "st-check" }, math, h("span", {}, "Equations (switched on automatically when you add one)"))),
     h("details", { class: "st-more" },
       h("summary", {}, h("span", { class: "st-field__label" }, "Date and web address")),
@@ -315,7 +315,6 @@ export function renderWrite(container, arg) {
 
   function paint() {
     paper.className = `st-paper${post.topic ? ` topic--${post.topic}` : ""}`;
-    editor.view.dom.classList.toggle("no-dropcap", !post.dropcap);
   }
 
   // The parts that depend on whether the post is new, a draft or published.
