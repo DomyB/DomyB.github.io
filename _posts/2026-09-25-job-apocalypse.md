@@ -1,7 +1,7 @@
 ---
 title: "Job Apocalypse"
 topic: ai
-connections: [economics]
+connections: [economics, politics]
 description: "Is Ai going to substitute the withe collar?"
 ---
 
