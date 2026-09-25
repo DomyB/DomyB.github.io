@@ -7,12 +7,12 @@ description: "Is Ai going to substitute the withe collar?"
 
 i
 
-was reading an article by Ezra Klein and he starts off saying that, a pool from the Quinnipiac University (It began as a localized marketing research class project led by professor **Maurice "Mickey" Carroll** and grew into a nationally recognized, independent polling institute.) found that 70% of American, believe that AI will be disruptive for the job market and 30% say they are worried for their own jobs. Then he adds different opinions given by leading AI executive like Dario Amodei and Mustafa Suleyman that most of the job for withe collar will be taken over AI in the next near to medium term future. Then after citing OpenAI suggested policy for company and government saying that the work hours should be reduced, he goes on saying that if all of this is true there is nothing preventing human like machine to heavily substitute human. AI doesn't  ask for salary raise, or doesn't  form union, it doesn't need to sleep, it's always productive without highs and lows. 
+was reading an article by **Ezra Klein** and he starts off saying that, a pool from the Quinnipiac University (It began as a localized marketing research class project led by professor **Maurice "Mickey" Carroll** and grew into a nationally recognized, independent polling institute.) found that 70% of American, believe that AI will be disruptive for the job market and 30% say they are worried for their own jobs. Then he adds different opinions given by leading AI executive like **Dario Amodei** and **Mustafa Suleyman** that most of the job for withe collar will be taken over AI in the next near to medium term future. Then after citing OpenAI suggested policy for company and government saying that the work hours should be reduced, he goes on saying that if all of this is true there is nothing preventing human like machine to heavily substitute human. AI doesn't  ask for salary raise, or doesn't  form union, it doesn't need to sleep, it's always productive without highs and lows. 
 
 ---
 
-What the opinions say are far from the reality.   
-in 2020 the unemployment rate in march was 4.4% in march 2026 is 4.3%.   
+What the opinions say are far from the reality.  
+in 2020 the unemployment rate in march was 4.4% in march 2026 is 4.3%.  
 Claude code is crazy cool still the demand for software engineer was never so high.  
 The author of the article goes on and says that, talking with a prominent economist Alex Imas, he believes that we are looking at AI the wrong way. 
 
@@ -26,11 +26,11 @@ The author then shows a poetic finding from econometrics. When people get richer
 
 ---
 
-There is a famous paradox called the "Jevons Paradox" (after a British economist called William Stanley Jevons) in 1865 he was interested in the in Britain use of coal. Then the famous James Watt created the an improved steam engine which would use half the amount of coal need to run a normal engine and people believed that the consumption of coal would have been less and slowly o down. During that years there was a boom on coal consumption because coal was now used for more task then ever before.   
+There is a famous paradox called the **"Jevons Paradox"** (after a British economist called **William Stanley Jevons**) in 1865 he was interested in the in Britain use of coal. Then the famous James Watt created the an improved steam engine which would use half the amount of coal need to run a normal engine and people believed that the consumption of coal would have been less and slowly o down. During that years there was a boom on coal consumption because coal was now used for more task then ever before.   
 
 ---
 
-A profesor at Arizona State University "Maksymov" believes that AI is likely to do the same with knowledge. The use of AI will create so many more task that there will be the need to have more knowledge then ever. The author does an example, he says that during the year he had an editor that had to sleep a therapist that he could talk to for an hour a week and a doctor that would take work to see them and he thought AI would be able to substitute them well it did the opposite it created more question to discuss with the editor it create more topic to talk with the therapist and it gave the willingness of creating more appointments with the doctor because what AI said was concerning.  
+A professor at Arizona State University **"Maksymov"** believes that AI is likely to do the same with knowledge. The use of AI will create so many more task that there will be the need to have more knowledge then ever. The author does an example, he says that during the year he had an editor that had to sleep a therapist that he could talk to for an hour a week and a doctor that would take work to see them and he thought AI would be able to substitute them well it did the opposite it created more question to discuss with the editor it create more topic to talk with the therapist and it gave the willingness of creating more appointments with the doctor because what AI said was concerning.  
 
 ---
 
@@ -42,7 +42,7 @@ When he started the podcast he had just himself to look for the content, now he 
 
 ---
 
-He does an example that I found very notable, he compares the China shock would happen if we treat AI similar to how the society treated worker from 2000 to 2020. Because the job that was affected by the cheap manufacturing was just a part of the economy the fault was given to the people that were doing this jobs and not to an advancement therefore  the help from the government was very little. If taken seriously like Covid the all economy will be very important for the government to protect this jobs and create a different economic system.  
+He does an example that I found very notable, he compares the **"China shock"** would happen if we treat AI similar to how the society treated worker from 2000 to 2020. Because the job that was affected by the cheap manufacturing was just a part of the economy the fault was given to the people that were doing this jobs and not to an advancement therefore  the help from the government was very little. If taken seriously like Covid the all economy will be very important for the government to protect this jobs and create a different economic system.  
 
 ---
 
