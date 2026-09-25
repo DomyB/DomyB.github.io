@@ -1,6 +1,6 @@
-# Domenico Bencivenga: Notes on Economics, AI & Life
+# Domenico Bencivenga: Notes on Economics, AI, Politics & Life
 
-My personal blog about **economics**, **artificial intelligence** and **life**.
+My personal blog about **economics**, **artificial intelligence**, **politics** and **life**.
 
 **Live at → https://domyb.github.io**
 

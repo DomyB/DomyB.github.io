@@ -1378,6 +1378,22 @@ a.st-hint.st-link {
   pointer-events: none;
 }
 
+/* While the cursor is in the first paragraph, its first letter stays normal
+   size (a floating big letter confuses the cursor in some browsers, like
+   Safari). It turns big again as soon as you move on (see editor.js). */
+.studio .st-editor__content.is-writing-first > p:first-child {
+  display: block;
+}
+
+.studio .st-editor__content.is-writing-first > p:first-child::first-letter {
+  float: none;
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
 /* No drop cap on the placeholder text */
 .st-editor__content > p.is-editor-empty:first-child::first-letter {
   float: none;
