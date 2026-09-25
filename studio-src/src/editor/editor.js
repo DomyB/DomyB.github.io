@@ -1,6 +1,8 @@
 // The visual ("Word-like") editor. It reads and writes the same Markdown the
 // blog uses, so posts written here look exactly like the rest of the site.
-import { Editor } from "@tiptap/core";
+import { Editor, Extension } from "@tiptap/core";
+import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import Paragraph from "@tiptap/extension-paragraph";
@@ -29,6 +31,57 @@ export function protectParagraph(markdown) {
 const StudioParagraph = Paragraph.extend({
   renderMarkdown(node, helpers, context) {
     return protectParagraph(this.parent(node, helpers, context));
+  }
+});
+
+// The big first letter of a post. The blog draws it with CSS (::first-letter),
+// but in the editor that breaks typing in Safari: every key pressed after the
+// first letter replaces it. So here the letter gets a <span> of its own, which
+// every browser edits normally. It takes the same characters as the blog's:
+// the letter plus any punctuation touching it, like “H or L'.
+const PUNCT = "[\\p{Ps}\\p{Pe}\\p{Pi}\\p{Pf}\\p{Po}]";
+const FIRST_LETTER = new RegExp(`^(?:${PUNCT}*[\\p{L}\\p{N}]${PUNCT}*|\\S)`, "u");
+
+// Where the big letter is: [from, to], or null when the post doesn't start
+// with a paragraph of text.
+function dropCapRange(doc) {
+  const paragraph = doc.firstChild;
+  const text = paragraph && paragraph.type.name === "paragraph" ? paragraph.firstChild : null;
+  const letter = text && text.isText ? FIRST_LETTER.exec(text.text) : null;
+  return letter ? [1, 1 + letter[0].length] : null;
+}
+
+const DropCap = Extension.create({
+  name: "dropCap",
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      key: new PluginKey("dropCap"),
+      props: {
+        decorations(state) {
+          const range = dropCapRange(state.doc);
+          return range ? DecorationSet.create(state.doc, [Decoration.inline(...range, { class: "st-dropcap" })]) : null;
+        }
+      }
+    })];
+  },
+  // Safari's arrow keys don't step over a floating letter, so do it here.
+  addKeyboardShortcuts() {
+    const step = (direction, extend) => ({ editor }) => {
+      const { state, view } = editor;
+      const range = dropCapRange(state.doc);
+      const { anchor, head, empty } = state.selection;
+      if (!range || view.dom.classList.contains("st-no-dropcap") || (!extend && !empty)) return false;
+      const target = direction < 0 ? (head === range[1] ? range[0] : null) : (head === range[0] ? range[1] : null);
+      if (target === null) return false;
+      view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, extend ? anchor : target, target)).scrollIntoView());
+      return true;
+    };
+    return {
+      ArrowLeft: step(-1, false),
+      ArrowRight: step(1, false),
+      "Shift-ArrowLeft": step(-1, true),
+      "Shift-ArrowRight": step(1, true)
+    };
   }
 });
 
@@ -76,15 +129,15 @@ export function createEditor(element, markdown, { onChange, resolveImage }) {
       CharacterCount,
       MathInline,
       MathBlock,
+      DropCap,
       Markdown
     ],
     content: markdown,
     contentType: "markdown",
     editorProps: {
       attributes: {
-        // No big first letter while writing: a floating letter makes some
-        // browsers (like Safari) push the cursor and new text below it. It
-        // still shows on the blog.
+        // "no-dropcap" switches off the blog's own big first letter here;
+        // DropCap draws it instead.
         class: "prose post-content no-dropcap st-editor__content",
         "aria-label": "Post text",
         "aria-multiline": "true",

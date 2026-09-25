@@ -1378,6 +1378,21 @@ a.st-hint.st-link {
   pointer-events: none;
 }
 
+/* The big first letter while writing (drawn by DropCap in editor.js). It
+   looks the same as the blog's, and "Big first letter" turns it off. */
+.st-editor__content:not(.st-no-dropcap) > p:first-child {
+  display: flow-root;
+}
+
+.st-editor__content:not(.st-no-dropcap) .st-dropcap {
+  float: left;
+  margin: 0.08em 0.1em 0 0;
+  font-size: 3.7em;
+  font-weight: 600;
+  line-height: 0.8;
+  color: var(--link-accent);
+}
+
 .st-editor__content .ProseMirror-selectednode {
   outline: 2px solid var(--focus);
   outline-offset: 3px;
