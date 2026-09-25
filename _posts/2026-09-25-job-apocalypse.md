@@ -3,7 +3,6 @@ title: "Job Apocalypse"
 topic: ai
 connections: [economics]
 description: "Is Ai going to substitute the withe collar?"
-published: false
 ---
 
 i
