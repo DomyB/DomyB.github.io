@@ -5,9 +5,7 @@ connections: [economics, politics]
 description: "Is Ai going to substitute the withe collar?"
 ---
 
-I
-
-was reading an article by **Ezra Klein** and he starts off saying that, a pool from the Quinnipiac University (It began as a localized marketing research class project led by professor **Maurice "Mickey" Carroll** and grew into a nationally recognized, independent polling institute.) found that 70% of American, believe that AI will be disruptive for the job market and 30% say they are worried for their own jobs. Then he adds different opinions given by leading AI executive like **Dario Amodei** and **Mustafa Suleyman** that most of the job for withe collar will be taken over AI in the next near to medium term future. Then after citing OpenAI suggested policy for company and government saying that the work hours should be reduced, he goes on saying that if all of this is true there is nothing preventing human like machine to heavily substitute human. AI doesn't  ask for salary raise, or doesn't  form union, it doesn't need to sleep, it's always productive without highs and lows. 
+Iwas reading an article by **Ezra Klein** and he starts off saying that, a pool from the Quinnipiac University (It began as a localized marketing research class project led by professor **Maurice "Mickey" Carroll** and grew into a nationally recognized, independent polling institute.) found that 70% of American, believe that AI will be disruptive for the job market and 30% say they are worried for their own jobs. Then he adds different opinions given by leading AI executive like **Dario Amodei** and **Mustafa Suleyman** that most of the job for withe collar will be taken over AI in the next near to medium term future. Then after citing OpenAI suggested policy for company and government saying that the work hours should be reduced, he goes on saying that if all of this is true there is nothing preventing human like machine to heavily substitute human. AI doesn't  ask for salary raise, or doesn't  form union, it doesn't need to sleep, it's always productive without highs and lows. 
 
 ---
 
