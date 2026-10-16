@@ -1,0 +1,6 @@
+yfinance>=0.2.50
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.5
+PyYAML>=6.0
+requests>=2.32

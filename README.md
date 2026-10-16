@@ -150,6 +150,56 @@ Edit mode also warns you about connection names that don't match anything, which
 
 ---
 
+## 📈 The Stocks page
+
+**https://domyb.github.io/stocks/** tracks a list of stocks and funds with live-ish prices, chart
+signals, fundamentals and forecasts, and it grades its own forecasts in public as they come due.
+
+- **Overview:** every tracked stock with its price, a 60-day sparkline, the forecast for the horizon
+  you pick (a day, a week, a month, three months) with its 80% band and the chance of a gain, the fair
+  value gap, and a 0–100 score. Search, filter by sector, sort any column.
+- **A stock's page:** a price chart with moving averages, Bollinger bands and the forecast cone, RSI and
+  MACD, the forecasts for every horizon, plain-language readings of the chart (trend, momentum,
+  overbought/oversold, volume, volatility), a fair value built from three methods, the key ratios, the
+  analysts' view, and that stock's own track record.
+- **How the forecasts work:** what the model can and can't do, the walk-forward backtest horizon by
+  horizon next to the naive baselines it has to beat, calibration by decile, year-by-year results, the
+  features the model relies on, and the live track record of every forecast published on the site.
+
+### How it works
+
+The numbers come from `tools/stocks/pipeline.py`, which GitHub Actions runs on a schedule
+(`.github/workflows/stocks.yml`): every half hour during European and US trading hours and once more
+after the US close. Each run downloads twelve years of daily prices from Yahoo Finance for the tracked
+symbols plus about 150 extra US large caps the model learns from, computes the features, retrains the
+model (the walk-forward backtest itself is redone once a day, after the close), fetches fundamentals,
+writes down today's forecasts in a ledger and grades the ones that have come due. The result is a set
+of plain JSON files pushed to the **`stock-data`** branch, which the page reads straight from
+`raw.githubusercontent.com`. `main` is never touched, so the blog's history stays clean. A copy of the
+output from the last manual run lives in `assets/data/stocks/` as a fallback for the very first load.
+
+The model forecasts *relative* performance (which stocks beat the others) on top of a conservative
+market drift, because that is the only part of stock returns with a measurable, repeatable edge.
+Forecasts are calibrated and their bands sized on the model's own out-of-sample errors. The whole
+method, with its results, is explained on the page itself. **None of it is investment advice.**
+
+### Everyday use
+
+- **Add or remove a stock:** edit `_data/stocks.yml` (any Yahoo Finance symbol; Milan listings end in
+  `.MI`). The next data run picks it up. Keep the list to liquid, well-known names.
+- **Refresh by hand:** open the **Actions** tab → *Stocks data* → **Run workflow**. Tick *Force a new
+  backtest* to retrain from scratch.
+- **Live prices:** the page refreshes itself every few minutes with the latest run. For second-by-second
+  prices during US hours, click **Live prices** on the page and paste a free
+  [Finnhub](https://finnhub.io/register) key; it stays in that browser only.
+- **The first run:** the scheduled workflow only runs on the `main` branch, so after this lands on
+  `main` either wait for the next scheduled time or run it by hand once. GitHub pauses schedules in
+  repositories with no activity for 60 days; a commit or a manual run wakes them up.
+- **Run it on your computer** (optional): `pip install -r tools/stocks/requirements.txt`, then
+  `python tools/stocks/pipeline.py --out build/stocks --limit 10 --years 6` for a quick test.
+
+---
+
 ## 🧾 Formatting cheat sheet
 
 ```markdown
@@ -236,6 +286,7 @@ The colors reach every page through `assets/css/topics.css`, which is generated 
 - **Smooth page transitions.** Post titles glide from the list into the article in browsers that support it.
 - **The Studio:** a private, word-processor-like app at `/studio/` for writing posts and managing the network and subjects.
 - **The Network:** an interactive neural network of your subjects and posts at `/network/`, with an edit mode for drawing connections.
+- **The Stocks page:** prices, chart signals, fundamentals and honestly backtested forecasts at `/stocks/`, refreshed automatically by GitHub Actions.
 - **Topic pages and an archive:** `/economics/`, `/ai/`, `/life/`, `/politics/` and `/archive/`.
 - **Feeds, sharing and search:** an RSS feed at `/feed.xml`, a sitemap, and link previews for WhatsApp, LinkedIn and X.
 - **Details:** reading time, footnotes, code highlighting and math.
@@ -250,11 +301,15 @@ about.md         the About page
 index.html       the home page
 archive.html     the list of all posts
 network.html     the Network page
+stocks.html      the Stocks page (drawn by assets/js/stocks.js, styled by assets/css/stocks.css)
+_data/stocks.yml the stocks the Stocks page tracks
+tools/stocks/    the Python pipeline that builds the Stocks page's data
 topics/          the Economics / AI / Life / Politics pages
 _layouts/        page templates (post, page, topic…)
 _includes/       reusable pieces (header, footer, post list…)
 assets/css/      the design (colors, fonts, layout, animations)
-assets/js/       the theme switch, the animated chart and the Network
+assets/js/       the theme switch, the animated chart, the Network and the Stocks page
+assets/data/     the Stocks page's fallback data (the live data is on the stock-data branch)
 assets/fonts/    the Newsreader typeface
 assets/images/   icons, the social card and your images
 studio/          the Studio app (studio/app/ is built from studio-src/, don't edit it by hand)

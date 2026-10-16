@@ -1,0 +1,60 @@
+---
+layout: default
+title: Stocks
+description: Live prices, technical and fundamental analysis, and honestly backtested forecasts for the stocks I follow.
+permalink: /stocks/
+stocks: true
+---
+{%- comment -%}
+  The Stocks page. The data is produced by tools/stocks/pipeline.py (run by
+  .github/workflows/stocks.yml) and published on the `stock-data` branch; the
+  copy in assets/data/stocks/ is a fallback from the last manual run. Everything
+  on the page is drawn by assets/js/stocks.js.
+{%- endcomment -%}
+<div class="wrap stocks" id="stocks"
+     data-repo="{{ site.repository }}"
+     data-branch="stock-data"
+     data-local="{{ '/assets/data/stocks/' | relative_url }}">
+  <header class="page-header stocks__header">
+    <p class="eyebrow">Stocks</p>
+    <h1 class="page-title">Markets, <em>measured</em></h1>
+    <p class="page-lede">Prices, chart signals, fundamentals and forecasts for the stocks I follow, with the forecasts graded in public as they come due.</p>
+  </header>
+
+  <nav class="stocks__tabs" aria-label="Stocks sections">
+    <a class="stocks__tab" href="#/" data-view="overview">Overview</a>
+    <a class="stocks__tab" href="#/method" data-view="method">How the forecasts work</a>
+    <span class="stocks__status" role="status" aria-live="polite"></span>
+    <button type="button" class="stocks__live-button" aria-haspopup="dialog" aria-expanded="false">Live prices</button>
+  </nav>
+
+  <div class="stocks__live-panel" role="dialog" aria-label="Live prices" hidden>
+    <h2 class="stocks__live-title">Live prices</h2>
+    <p>The page refreshes on its own every few minutes with the latest data run. For second-by-second prices during US trading hours, paste a free <a href="https://finnhub.io/register" rel="noopener">Finnhub</a> API key. It stays in this browser only and is sent to Finnhub alone.</p>
+    <form class="stocks__live-form">
+      <label for="stocks-live-key" class="visually-hidden">Finnhub API key</label>
+      <input id="stocks-live-key" type="password" autocomplete="off" spellcheck="false" placeholder="Finnhub API key">
+      <button type="submit">Save</button>
+      <button type="button" class="stocks__live-clear">Turn off</button>
+    </form>
+    <p class="stocks__live-note" role="status"></p>
+  </div>
+
+  <div class="stocks__view" id="stocks-view" tabindex="-1">
+    <div class="stocks__loading">
+      <p class="stocks__loading-title">Loading market data…</p>
+      <p>The first load fetches a couple of hundred kilobytes.</p>
+    </div>
+  </div>
+
+  <noscript>
+    <div class="empty-state">
+      <p class="empty-state__title">This page needs JavaScript.</p>
+      <p>The charts, forecasts and live prices are drawn in the browser.</p>
+    </div>
+  </noscript>
+
+  <footer class="stocks__disclaimer">
+    <p><strong>Not investment advice.</strong> Everything here is produced automatically from public data for my own curiosity. Forecasts are probabilities with wide bands, not promises; the backtest and the running track record show exactly how often they are right and wrong. Past results don't guarantee future ones, and you can lose money in markets.</p>
+  </footer>
+</div>

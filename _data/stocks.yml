@@ -1,0 +1,105 @@
+# The stocks tracked on the Stocks page (/stocks/).
+#
+# Add a line with a Yahoo Finance symbol and the next data refresh picks it up
+# (the refresh runs automatically during market hours; see the README). The
+# `name` is optional: when it's missing the company's name comes from Yahoo.
+# Symbols from other exchanges work too, for example `ENI.MI` for Milan.
+#
+# The page's prediction model is trained on every symbol in this list at once,
+# so keep it to liquid, well-known names: a few dozen to a hundred is ideal.
+
+# US technology
+- symbol: AAPL
+- symbol: MSFT
+- symbol: NVDA
+- symbol: GOOGL
+- symbol: AMZN
+- symbol: META
+- symbol: TSLA
+- symbol: AVGO
+- symbol: ORCL
+- symbol: CRM
+- symbol: ADBE
+- symbol: AMD
+- symbol: INTC
+- symbol: QCOM
+- symbol: CSCO
+- symbol: IBM
+- symbol: NFLX
+- symbol: PLTR
+- symbol: UBER
+- symbol: ASML
+- symbol: SAP
+
+# Finance
+- symbol: JPM
+- symbol: BAC
+- symbol: WFC
+- symbol: GS
+- symbol: MS
+- symbol: V
+- symbol: MA
+- symbol: AXP
+- symbol: BRK-B
+- symbol: BLK
+
+# Health
+- symbol: UNH
+- symbol: JNJ
+- symbol: LLY
+- symbol: PFE
+- symbol: MRK
+- symbol: ABBV
+- symbol: TMO
+- symbol: NVO
+
+# Consumer
+- symbol: WMT
+- symbol: COST
+- symbol: HD
+- symbol: MCD
+- symbol: NKE
+- symbol: SBUX
+- symbol: KO
+- symbol: PEP
+- symbol: PG
+- symbol: DIS
+
+# Industry and energy
+- symbol: XOM
+- symbol: CVX
+- symbol: CAT
+- symbol: BA
+- symbol: GE
+- symbol: HON
+- symbol: UPS
+- symbol: LMT
+- symbol: DE
+- symbol: NEE
+- symbol: LIN
+
+# Telecom and media
+- symbol: T
+- symbol: VZ
+- symbol: CMCSA
+
+# Italy and Europe (Borsa Italiana symbols end in .MI)
+- symbol: ENI.MI
+- symbol: ENEL.MI
+- symbol: ISP.MI
+- symbol: UCG.MI
+- symbol: STLAM.MI
+- symbol: RACE.MI
+- symbol: LDO.MI
+
+# Index and asset-class funds
+- symbol: SPY
+  name: S&P 500 (SPY)
+- symbol: QQQ
+  name: Nasdaq 100 (QQQ)
+- symbol: IWM
+  name: Russell 2000 (IWM)
+- symbol: GLD
+  name: Gold (GLD)
+- symbol: TLT
+  name: US 20y Treasuries (TLT)

@@ -15,3 +15,8 @@ Thumbs.db
 
 # The Studio's build tools (studio-src/), installed with `npm install`
 node_modules/
+
+# The Stocks pipeline's working folders (the workflow writes here)
+build/
+previous/
+__pycache__/

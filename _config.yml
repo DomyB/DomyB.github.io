@@ -98,5 +98,6 @@ exclude:
   - .jekyll-cache/
   - .sass-cache/
   - studio-src/
+  - tools/
   - package.json
   - package-lock.json

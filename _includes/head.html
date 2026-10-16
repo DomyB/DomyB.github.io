@@ -18,6 +18,9 @@
 <link rel="preload" href="{{ '/assets/fonts/newsreader-latin-opsz-normal.woff2' | relative_url }}" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{{ '/assets/css/main.css' | relative_url }}?v={{ asset_v }}">
 <link rel="stylesheet" href="{{ '/assets/css/topics.css' | relative_url }}?v={{ asset_v }}">
+{%- if page.stocks %}
+<link rel="stylesheet" href="{{ '/assets/css/stocks.css' | relative_url }}?v={{ asset_v }}">
+{%- endif %}
 <link rel="icon" href="{{ '/assets/images/favicon.svg' | relative_url }}" type="image/svg+xml">
 <link rel="apple-touch-icon" href="{{ '/assets/images/apple-touch-icon.png' | relative_url }}">
 {% seo %}
@@ -28,6 +31,9 @@
 {%- endif %}
 {%- if page.network %}
 <script src="{{ '/assets/js/network.js' | relative_url }}?v={{ asset_v }}" defer></script>
+{%- endif %}
+{%- if page.stocks %}
+<script src="{{ '/assets/js/stocks.js' | relative_url }}?v={{ asset_v }}" defer></script>
 {%- endif %}
 {%- if page.math %}
 {% include katex.html %}
