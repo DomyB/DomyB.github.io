@@ -31,7 +31,7 @@ from features import CHART_ONLY, HORIZONS, MIN_DAILY_VOL, TARGET_CLIP, indicator
 
 log = logging.getLogger("stocks.markets")
 
-VERSION = 3
+VERSION = 4
 CLASSES = ("index", "commodity", "currency", "crypto")
 CLASS_LABEL = {"index": "Index", "commodity": "Commodity", "currency": "Currency", "crypto": "Crypto"}
 CLASS_PLURAL = {"index": "Indices", "commodity": "Commodities", "currency": "Currencies", "crypto": "Crypto"}
@@ -76,6 +76,31 @@ def is_partial(symbol: str, cls: str, last_bar: pd.Timestamp, now_utc: datetime)
     if last_bar.date() != local.date():
         return False
     return local.hour * 60 + local.minute < close_min + 20
+
+
+def normalise_prices(prices: dict[str, pd.DataFrame], classes: dict[str, str]) -> dict[str, pd.DataFrame]:
+    """Put every instrument on a calendar the rest of the site can be compared with.
+
+    * Currency pairs: Yahoo dates an FX bar by the London morning that *starts*
+      it, so the bar labelled D closes around 00:00 UTC on D, before the US
+      session of D. Left alone, the US context of D would sit inside the 1-day
+      target (SPY's return on D correlates with the FX return labelled D+1 at
+      +0.2 to +0.3, and with the one labelled D at zero). The bars are relabelled
+      a day earlier, so the close of D-1 is the price at the end of D-1.
+    * Crypto trades every day; only weekday bars are kept, so a "1 week" or
+      "3 months" horizon spans the same calendar time as for everything else
+      (the weekend's move is folded into Monday's bar).
+    """
+    out = {}
+    for sym, df in prices.items():
+        cls = classes.get(sym)
+        if cls == "currency":
+            df = df.copy()
+            df.index = df.index - pd.Timedelta(days=1)
+        elif cls == "crypto":
+            df = df[df.index.dayofweek < 5].copy()
+        out[sym] = df
+    return out
 
 
 # --- the panel ----------------------------------------------------------------

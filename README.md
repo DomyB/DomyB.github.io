@@ -189,8 +189,10 @@ The model forecasts *relative* performance (which stocks beat the others, net of
 market) on top of a conservative market drift, because that is the only part of stock returns with a
 measurable, repeatable edge. The markets (indices, commodities, currencies, crypto) have no peers to be
 ranked against, so `tools/stocks/markets.py` gives them a pooled trend model of their own, trained on
-closes only (Yahoo's open/high/low for currency pairs and futures leak the next day's move), with a
-drift for equity indices and none for the rest; it is backtested, calibrated and graded the same way,
+closes only (Yahoo's open/high/low for currency pairs and futures leak the next day's move; its
+currency bars are dated by their London open and are shifted back a day; crypto is sampled on
+weekdays so horizons mean the same thing everywhere), with a drift for equity indices and none for
+the rest; it is backtested, calibrated and graded the same way,
 and the method page says plainly at which horizons it has an edge and at which it has none. Survivors only count from the day they joined the S&P 500, so the backtest
 isn't flattered by hindsight.
 Forecasts are calibrated and their bands sized on the model's own out-of-sample errors. The whole

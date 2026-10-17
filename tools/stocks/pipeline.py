@@ -305,9 +305,10 @@ def ledger_stats(entries: list[dict], tracked: list[str]) -> dict:
             "mae_zero": float(np.mean(np.abs(reals))),
             "ic_pooled": models._spearman(preds, reals) if len(done) >= 10 else None,
         }
-    pending = [e for e in entries if not e.get("resolved")]
+    mine = [e for e in entries if e["symbol"] in tracked]
+    pending = [e for e in mine if not e.get("resolved")]
     return {"horizons": stats, "pending": len(pending),
-            "since": min((e["date"] for e in entries), default=None)}
+            "since": min((e["date"] for e in mine), default=None)}
 
 
 # --- main --------------------------------------------------------------------
@@ -339,6 +340,7 @@ def main():
     msyms = [m["symbol"] for m in mkts]
     mclass = {m["symbol"]: m["class"] for m in mkts}
     minfo = {m["symbol"]: m for m in mkts}
+    prices.update(markets.normalise_prices({s: prices[s] for s in msyms}, mclass))
     if "membership" in features.FEATURE_FLAGS:
         features.MEMBERSHIP = load_membership()
     market = prices.get(CONTEXT_SYMBOLS["market"])
@@ -515,7 +517,8 @@ def main():
         no_fundamentals = is_market or quote_type == "ETF"
 
         fcs = {}
-        for r in (mfc if is_market else fc)[(mfc if is_market else fc)["symbol"] == sym].itertuples():
+        fsrc = mfc if is_market else fc
+        for r in (fsrc[fsrc["symbol"] == sym] if len(fsrc) else fsrc).itertuples():
             fcs[int(r.h)] = {"ret": r.ret, "relRet": r.rel_ret, "p10": r.p10, "p25": r.p25, "p75": r.p75,
                              "p90": r.p90, "pUp": r.p_up, "conviction": r.conviction, "sigma": r.sigma,
                              "drift": r.drift, "z": r.z}
