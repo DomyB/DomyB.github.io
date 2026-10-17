@@ -1105,41 +1105,76 @@
   function renderMethod() {
     document.title = "How the forecasts work · Stocks";
     var s = state.summary, bt = s.backtest || {}, m = s.model || {};
+    var btRecent = s.backtestRecent && Object.keys(s.backtestRecent).length ? s.backtestRecent : null;
     var box = el("div", { class: "method" });
     view.appendChild(box);
     var hs = [1, 5, 21, 63].filter(function (h) { return bt[h]; });
-    var bestH = hs.slice().sort(function (a, b) { return (bt[b].ic_daily_t || 0) - (bt[a].ic_daily_t || 0); })[0];
+    var tOf = function (r) { return r.ic_daily_t_nw != null ? r.ic_daily_t_nw : r.ic_daily_t; };
+    var head = btRecent || bt;
+    var bestH = hs.slice().sort(function (a, b) { return (tOf(head[b] || bt[b]) || 0) - (tOf(head[a] || bt[a]) || 0); })[0];
 
     box.appendChild(el("h2", { text: "What the model can and can't do" }));
     box.appendChild(el("p", { text: "Nobody can reliably say whether the market goes up or down next month, and a model that pretends to just adds noise. What is mildly predictable is which stocks will do better or worse than the others: the well-documented momentum, short-term reversal and low-volatility effects. So every forecast here has two parts: a market drift, which is simply the historical average return (halved, to stay conservative), and a relative forecast, which is learned and says how much better or worse than the average tracked stock this one should do." }));
-    box.appendChild(el("p", { text: "The learned part is an average of two models trained on " + (m.universeSize || "a few hundred") + " stocks at once: a gradient-boosted tree ensemble, which finds interactions such as \"oversold and in an uptrend\", and a ridge regression, which is linear and hard to overfit. They see " + (m.features || 80) + " features computed only from past prices and volumes: returns over many windows, moving-average gaps, RSI, MACD, Bollinger position, volatility, volume flows, each stock's rank among the others, and the market's own state (S&P 500 trend, VIX, 10-year yield). What they learn to predict is each stock's rank among all the others over the next period, which is more robust than predicting the size of the move. Fundamentals are deliberately kept out of the learned model because only today's values are available, and training on them would be cheating." }));
-    box.appendChild(el("p", { text: "Forecasts are calibrated against the backtest: if only a third of a predicted relative move materialised on average in the past, today's forecast is scaled by a third. The 80% bands are the model's own out-of-sample errors (conformal prediction), so they are as wide as they need to be." }));
+    box.appendChild(el("p", { text: "The learned part is an average of two models trained on " + (m.universeSize || "a few hundred") + " stocks at once: a gradient-boosted tree ensemble, which finds interactions such as \"oversold and in an uptrend\", and a ridge regression, which is linear and hard to overfit. They see " + (m.features || 80) + " features computed only from past prices and volumes: returns over many windows, moving-average gaps, RSI, MACD, Bollinger position, volatility, volume flows, each stock's rank among the others, and the market's own state (S&P 500 trend, VIX, 10-year yield). What they learn to predict is each stock's rank among all the others over the next period, after taking out each stock's share of the market's move (half its beta, half one-for-one), so the ranking rewards stock picking rather than a bet on high- or low-beta names, and is more robust than predicting the size of the move. The one-week and one-month forecasts are then blended with their neighbouring horizons' forecasts (15% from each side), which reduced noise in the backtest. Fundamentals are deliberately kept out of the learned model because only today's values are available, and training on them would be cheating." }));
+    box.appendChild(el("p", { text: "Forecasts are calibrated against the backtest: if only a third of a predicted relative move materialised on average in the past, today's forecast is scaled by a third. The 80% bands are the model's own out-of-sample errors (conformal prediction), so they are as wide as they need to be. Two honesty rules shape the backtest: a stock only enters the cross-section from the day it joined the S&P 500 (today's survivors can't teach the model what future winners looked like before anyone could have picked them), and European listings see the US market's context with a one-day lag, because their session closes first." }));
 
     if (hs.length) {
-      var b = bt[bestH];
+      var b = (btRecent && btRecent[bestH]) || bt[bestH];
       var span = dateLong(b.from).slice(-4) + "–" + dateLong(b.to).slice(-4);
-      var strong = b.ic_daily_t >= 2;
+      var strong = tOf(b) >= 2;
       var verdict = strong
-        ? "Over " + span + ", out of sample, the model's ranking of stocks was positively related to what happened next on " + pct(b.ic_positive_share, 0, false) + " of days at the " + HORIZON_NAMES[bestH] + " horizon (t-statistic " + num(b.ic_daily_t, 1) + ", so very unlikely to be luck). Picking the fifth of stocks it liked most against the fifth it liked least would have earned " + pct(b.long_short_annualised, 0) + " a year before costs. That is a real but small edge: the kind a professional desk is pleased with, and one a retail trader would struggle to capture after fees. "
-        : "Over " + span + ", out of sample, the model's ranking of stocks was only weakly related to what happened next (best horizon " + HORIZON_NAMES[bestH] + ", t-statistic " + num(b.ic_daily_t, 1) + ", which could be luck). The calibration therefore scales the relative forecasts down to almost nothing, and what remains is mostly the market drift with honest, wide bands. ";
+        ? "Over " + span + (btRecent ? " (the recent years only, which is the stricter test)" : "") + ", out of sample, the model's ranking of stocks was positively related to what happened next on " + pct(b.ic_positive_share, 0, false) + " of days at the " + HORIZON_NAMES[bestH] + " horizon (t-statistic " + num(tOf(b), 1) + ", so very unlikely to be luck). Picking the fifth of stocks it liked most against the fifth it liked least would have earned " + pct(b.long_short_annualised, 0) + " a year before costs. That is a real but small edge: the kind a professional desk is pleased with, and one a retail trader would struggle to capture after fees. "
+        : "Over " + span + ", out of sample, the model's ranking of stocks was only weakly related to what happened next (best horizon " + HORIZON_NAMES[bestH] + ", t-statistic " + num(tOf(b), 1) + ", which could be luck). The calibration therefore scales the relative forecasts down to almost nothing, and what remains is mostly the market drift with honest, wide bands. ";
       verdict += "The absolute direction (will the price go up?) is right " + pct(b.hit_rate, 0, false) + " of the time, the same as always saying \"up\" (" + pct(b.up_rate, 0, false) + "), because the model does not try to time the market. Horizons where the t-statistic is below 2 should be read as \"no reliable edge\".";
       box.appendChild(el("div", { class: "verdict" }, el("p", {}, el("strong", { text: "The honest summary. " }), verdict)));
     }
 
+    function bestRule(r) {
+      var best = null;
+      Object.keys(r.baselines || {}).forEach(function (k) { var v = r.baselines[k]; if (!best || v.rel_hit_rate > best.rel_hit_rate) best = v; });
+      return best;
+    }
+    function backtestTable(src, caption) {
+      var hz = hs.filter(function (h) { return src[h]; });
+      return el("div", { class: "card wide" }, caption ? el("p", { class: "card__title", text: caption }) : null, el("table", { class: "record-table" },
+        el("thead", {}, el("tr", {}, el("th", { text: "Horizon" }), el("th", { text: "Beat the others" }), el("th", { text: "best naive rule" }), el("th", { text: "Rank skill (IC)" }), el("th", { text: "t-stat" }), el("th", { text: "Raw-return IC" }), el("th", { text: "Days IC > 0" }), el("th", { text: "Long–short / yr" }), el("th", { text: "Up direction" }), el("th", { text: "always up" }), el("th", { text: "Inside 80% band" }), el("th", { text: "Forecasts" }))),
+        el("tbody", {}, hz.map(function (h) {
+          var r = src[h], rule = bestRule(r);
+          return el("tr", {}, el("td", { text: HORIZON_NAMES[h] }),
+            el("td", { class: r.rel_hit_rate > (rule ? rule.rel_hit_rate : 0.505) ? "good" : "", text: pct(r.rel_hit_rate, 1, false) }), el("td", { class: "muted", text: rule ? pct(rule.rel_hit_rate, 1, false) : "50.0%" }),
+            el("td", { text: num(r.ic_daily_mean, 3) }), el("td", { class: tOf(r) >= 2 ? "good" : "", text: num(tOf(r), 1) }),
+            el("td", { text: r.ic_raw_daily_mean == null ? "–" : num(r.ic_raw_daily_mean, 3) }),
+            el("td", { text: pct(r.ic_positive_share, 0, false) }), el("td", {}, delta(r.long_short_annualised, 0)),
+            el("td", { text: pct(r.hit_rate, 1, false) }), el("td", { class: "muted", text: pct(r.up_rate, 1, false) }),
+            el("td", { text: pct(r.coverage80_out_of_time, 0, false) }), el("td", { text: compact(r.n) }));
+        }))));
+    }
     box.appendChild(el("h2", { text: "The backtest, horizon by horizon" }));
-    box.appendChild(el("p", { text: "Walk-forward: the model that forecasts a six-month period was trained only on data that ended before it, with a gap of one horizon so no training target overlaps the test. Numbers in the \"baseline\" columns are what a coin flip or a permanent optimist would score." }));
-    box.appendChild(el("div", { class: "card wide" }, el("table", { class: "record-table" },
-      el("thead", {}, el("tr", {}, el("th", { text: "Horizon" }), el("th", { text: "Beat the others" }), el("th", { text: "baseline" }), el("th", { text: "Rank skill (IC)" }), el("th", { text: "t-stat" }), el("th", { text: "Days IC > 0" }), el("th", { text: "Long–short / yr" }), el("th", { text: "Up direction" }), el("th", { text: "baseline" }), el("th", { text: "Inside 80% band" }), el("th", { text: "Forecasts" }))),
-      el("tbody", {}, hs.map(function (h) {
-        var r = bt[h];
-        return el("tr", {}, el("td", { text: HORIZON_NAMES[h] }),
-          el("td", { class: r.rel_hit_rate > 0.505 ? "good" : "", text: pct(r.rel_hit_rate, 1, false) }), el("td", { class: "muted", text: "50.0%" }),
-          el("td", { text: num(r.ic_daily_mean, 3) }), el("td", { class: r.ic_daily_t >= 2 ? "good" : "", text: num(r.ic_daily_t, 1) }),
-          el("td", { text: pct(r.ic_positive_share, 0, false) }), el("td", {}, delta(r.long_short_annualised, 0)),
-          el("td", { text: pct(r.hit_rate, 1, false) }), el("td", { class: "muted", text: pct(r.up_rate, 1, false) }),
-          el("td", { text: pct(r.coverage80_out_of_time, 0, false) }), el("td", { text: compact(r.n) }));
-      })))));
-    box.appendChild(el("p", { class: "small muted" }, el("strong", { text: "Beat the others: " }), "how often the sign of the relative forecast was right. ", el("strong", { text: "IC: " }), "the rank correlation between forecasts and outcomes within each day, averaged; its t-statistic counts overlapping horizons as one observation. ", el("strong", { text: "Long–short: " }), "the top fifth minus the bottom fifth by forecast, annualised, before costs. ", el("strong", { text: "Inside 80% band: " }), "measured on the last 30% of the test period with bands set on the first 70%."));
+    box.appendChild(el("p", { text: "Walk-forward: the model that forecasts a six-month period was trained only on data that ended before it, with a gap of one horizon so no training target overlaps the test. The \"best naive rule\" column is what the strongest of four fixed rules (bet on low volatility, on small dollar volume, on past-year momentum, or against last week's move) would have scored, so the model has to beat a real competitor, not a coin flip." }));
+    if (btRecent) {
+      box.appendChild(backtestTable(btRecent, "Since " + dateLong(s.recentFrom || "2021-01-01") + " (the recent years: the stricter test)"));
+      box.appendChild(el("div", { style: "height:.75rem" }));
+      box.appendChild(backtestTable(bt, "Whole test period, " + dateLong(bt[hs[0]].from).slice(-4) + "–" + dateLong(bt[hs[0]].to).slice(-4)));
+    } else {
+      box.appendChild(backtestTable(bt));
+    }
+    box.appendChild(el("p", { class: "small muted" }, el("strong", { text: "Beat the others: " }), "how often the sign of the relative forecast was right. ", el("strong", { text: "IC: " }), "the rank correlation between forecasts and outcomes within each day, averaged; its t-statistic (Newey-West) accounts for overlapping horizons. ", el("strong", { text: "Raw-return IC: " }), "the same correlation against plain forward returns instead of volatility-scaled ones, which is what you'd actually earn. ", el("strong", { text: "Long–short: " }), "the top fifth minus the bottom fifth by forecast, annualised, before costs. ", el("strong", { text: "Inside 80% band: " }), "measured on the last 30% of the test period with bands set on the first 70%."));
+
+    // The two learners and the naive rules, per horizon
+    var compRows = hs.filter(function (h) { return bt[h].components; });
+    if (compRows.length) {
+      box.appendChild(el("h3", { text: "What carries the skill" }));
+      box.appendChild(el("p", { text: "Daily IC of each learner alone and of the four naive rules, over the whole test period. The ensemble should beat both of its parts, and the model should beat every rule." }));
+      box.appendChild(el("div", { class: "card wide" }, el("table", { class: "record-table" },
+        el("thead", {}, el("tr", {}, el("th", { text: "Horizon" }), el("th", { text: "Boosted trees" }), el("th", { text: "Ridge" }), el("th", { text: "Ensemble" }), el("th", { text: "Low volatility" }), el("th", { text: "Small dollar volume" }), el("th", { text: "Momentum" }), el("th", { text: "Reversal" }))),
+        el("tbody", {}, compRows.map(function (h) {
+          var r = bt[h], c = r.components || {}, bl = r.baselines || {};
+          var f = function (v) { return v == null ? "–" : num(v, 3); };
+          return el("tr", {}, el("td", { text: HORIZON_NAMES[h] }),
+            el("td", { text: f(c.gbm && c.gbm.ic_daily_mean) }), el("td", { text: f(c.ridge && c.ridge.ic_daily_mean) }), el("td", { class: "good", text: f(c.ensemble && c.ensemble.ic_daily_mean) }),
+            el("td", { text: f(bl.f_negvol && bl.f_negvol.ic) }), el("td", { text: f(bl.f_negsize && bl.f_negsize.ic) }), el("td", { text: f(bl.f_mom && bl.f_mom.ic) }), el("td", { text: f(bl.f_rev && bl.f_rev.ic) }));
+        })))));
+    }
 
     if (hs.length) {
       box.appendChild(el("h2", { text: "Does a stronger forecast mean a bigger move?" }));

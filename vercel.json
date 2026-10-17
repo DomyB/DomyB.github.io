@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "jekyll",
+  "installCommand": "bundle install",
+  "buildCommand": "printf 'url: \"https://%s\"\\n' \"${VERCEL_PROJECT_PRODUCTION_URL:-${VERCEL_URL}}\" > _config.vercel.yml && JEKYLL_ENV=production bundle exec jekyll build --config _config.yml,_config.vercel.yml",
+  "outputDirectory": "_site",
+  "cleanUrls": true,
+  "trailingSlash": true,
+  "headers": [
+    { "source": "/assets/data/stocks/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=300" }] }
+  ]
+}

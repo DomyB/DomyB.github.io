@@ -178,8 +178,10 @@ of plain JSON files pushed to the **`stock-data`** branch, which the page reads 
 `raw.githubusercontent.com`. `main` is never touched, so the blog's history stays clean. A copy of the
 output from the last manual run lives in `assets/data/stocks/` as a fallback for the very first load.
 
-The model forecasts *relative* performance (which stocks beat the others) on top of a conservative
-market drift, because that is the only part of stock returns with a measurable, repeatable edge.
+The model forecasts *relative* performance (which stocks beat the others, net of their beta to the
+market) on top of a conservative market drift, because that is the only part of stock returns with a
+measurable, repeatable edge. Survivors only count from the day they joined the S&P 500, so the backtest
+isn't flattered by hindsight.
 Forecasts are calibrated and their bands sized on the model's own out-of-sample errors. The whole
 method, with its results, is explained on the page itself. **None of it is investment advice.**
 
@@ -197,6 +199,12 @@ method, with its results, is explained on the page itself. **None of it is inves
   repositories with no activity for 60 days; a commit or a manual run wakes them up.
 - **Run it on your computer** (optional): `pip install -r tools/stocks/requirements.txt`, then
   `python tools/stocks/pipeline.py --out build/stocks --limit 10 --years 6` for a quick test.
+- **Improve the model:** `tools/stocks/experiments.py` runs the walk-forward backtest for named variants
+  (feature packs, learner settings, post-processing) against the baseline, caches prices and features,
+  and reports paired daily-IC differences with a tune (to 2020) / confirm (2021 on) split and a
+  seed-noise floor, so a change is only adopted when it helps in both periods beyond noise.
+  `tools/stocks/build_membership.py` refreshes the S&P 500 entry dates used to keep survivorship bias
+  out of the training cross-section.
 
 ---
 
@@ -316,6 +324,22 @@ studio/          the Studio app (studio/app/ is built from studio-src/, don't ed
 studio-src/      the Studio's source code (see studio-src/README.md)
 _config.yml      site settings
 ```
+
+## ▲ Hosting a copy on Vercel (optional)
+
+GitHub Pages stays the home of the blog, but the repository also carries a `vercel.json`, so the same
+site can be served from Vercel too:
+
+1. On [vercel.com/new](https://vercel.com/new), import **DomyB/DomyB.github.io**. Vercel reads
+   `vercel.json`: it installs the gems, builds the site with Jekyll and serves the `_site` folder.
+   No settings need changing; the first build takes a few minutes because of the Ruby gems.
+2. Every push to the production branch redeploys. The Stocks page keeps reading its data from the
+   `stock-data` branch on GitHub, so it is just as live on Vercel.
+3. To deploy from the command line instead, create a token at **vercel.com/account/tokens** and run
+   `npx vercel --prod --token "$VERCEL_TOKEN"` from the repository.
+
+The site's absolute links (feed, sitemap, share previews) use the Vercel address automatically; the
+GitHub Pages address stays the canonical one in `_config.yml`.
 
 ## 💻 Preview on your own computer (optional)
 

@@ -101,3 +101,5 @@ exclude:
   - tools/
   - package.json
   - package-lock.json
+  - vercel.json
+  - .ruby-version

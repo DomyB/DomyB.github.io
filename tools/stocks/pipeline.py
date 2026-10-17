@@ -45,15 +45,17 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import models  # noqa: E402
+import features  # noqa: E402
 from datafeed import CONTEXT_SYMBOLS, download_prices, fetch_all_info, market_session_state  # noqa: E402
 from features import HORIZON_LABELS, HORIZONS, build_panel, context_features, indicators  # noqa: E402
 from fundamentals import fair_value, fundamental_score, fundamental_view, sector_medians  # noqa: E402
 from signals import technical_readings, technical_score  # noqa: E402
-from universe import TRAINING_ONLY  # noqa: E402
+from universe import SECTOR, SECTOR_ETFS, TRAINING_ONLY  # noqa: E402
 
 log = logging.getLogger("stocks")
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-VERSION = 1
+VERSION = 2
+RECENT_FROM = "2021-01-01"  # the "recent years" window the page leads with
 HISTORY_BARS = 504        # two years of daily bars in each ticker file
 SPARK_BARS = 60           # closes in the overview sparkline
 LEDGER_KEEP_DAYS = 3 * 365
@@ -137,6 +139,15 @@ def load_universe(limit: int | None):
     if limit:
         tracked, training = tracked[:limit], training[:limit]
     return tracked, training, names
+
+
+def load_membership() -> dict:
+    """symbol -> first date it counts in the cross-section (tools/stocks/data/membership.csv)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "membership.csv")
+    if not os.path.exists(path):
+        return {}
+    m = pd.read_csv(path)
+    return {r.symbol: pd.Timestamp(r.from_date) for r in m.itertuples()}
 
 
 def read_prev(prev_dir: str | None, name: str):
@@ -291,9 +302,13 @@ def main():
     # 1. Universe and prices
     tracked, training, names = load_universe(args.limit)
     log.info("%d tracked symbols, %d extra training symbols", len(tracked), len(training))
-    prices = download_prices(tracked + training + list(CONTEXT_SYMBOLS.values()), years=args.years)
+    features.FEATURE_FLAGS = set(features.PRODUCTION_FLAGS)
+    sector_etfs = sorted(set(SECTOR_ETFS.values())) if "sector" in features.FEATURE_FLAGS else []
+    prices = download_prices(tracked + training + list(CONTEXT_SYMBOLS.values()) + sector_etfs, years=args.years)
     tracked = [s for s in tracked if s in prices]
     training = [s for s in training if s in prices]
+    if "membership" in features.FEATURE_FLAGS:
+        features.MEMBERSHIP = load_membership()
     market = prices.get(CONTEXT_SYMBOLS["market"])
     if market is None:
         raise SystemExit("no market data (SPY): giving up")
@@ -308,11 +323,19 @@ def main():
     # 2. Features
     ctx = context_features(market, prices.get(CONTEXT_SYMBOLS["vix"]), prices.get(CONTEXT_SYMBOLS["rates"]))
     universe = {s: prices[s] for s in tracked + training}
-    panel, features = build_panel(universe, ctx, partial)
-    log.info("panel: %d rows × %d features", len(panel), len(features))
+    sector_prices = {name: prices[etf] for name, etf in SECTOR_ETFS.items() if etf in prices} if sector_etfs else None
+    panel, feature_names = build_panel(universe, ctx, partial, sectors=SECTOR, sector_prices=sector_prices)
+    # A "real" cross-section needs 30 names; with a small test universe, settle for half of it
+    models.MIN_CROSS_SECTION = min(30, max(10, len(universe) // 2))
+    log.info("panel: %d rows × %d features", len(panel), len(feature_names))
 
     # 3. Backtest (reused when nothing new has closed since the previous one)
-    universe_hash = hashlib.sha1(("|".join(sorted(universe)) + "|" + "|".join(features) + f"|{models.TARGET}").encode()).hexdigest()[:12]
+    membership_sig = hashlib.sha1(repr(sorted((k, str(v.date())) for k, v in features.MEMBERSHIP.items())).encode()).hexdigest()[:8]
+    knobs = repr((models.TARGET, models.SMOOTH_DAYS, models.BLEND, models.RIDGE_CS, models.RIDGE_ALPHA, models.GBM_PARAMS,
+                  models.N_SEEDS, models.SEED_OFFSET, models.TRAIN_STRIDE, models.TRAIN_WINDOW_DAYS, models.RECENCY_HALFLIFE,
+                  models.ENSEMBLE_WEIGHTS, models.DRIFT_SHRINK, models.MIN_CROSS_SECTION, features.BETA_SHRINK,
+                  features.FEATURE_VERSION, VERSION, membership_sig))
+    universe_hash = hashlib.sha1(("|".join(sorted(universe)) + "|" + "|".join(feature_names) + "|" + knobs).encode()).hexdigest()[:12]
     prev_bt = read_prev(args.prev, "backtest.json")
     reuse = (not args.full and prev_bt and prev_bt.get("universeHash") == universe_hash
              and prev_bt.get("trainedThrough") == market_last_complete.strftime("%Y-%m-%d")
@@ -323,25 +346,34 @@ def main():
         cal = {int(h): c for h, c in prev_bt["calibration"].items()}
     else:
         log.info("running the walk-forward backtest")
-        oos = models.walk_forward(panel, features)
+        oos = models.walk_forward(panel, feature_names)
         cal = models.calibrate(oos)
         report = models.evaluate(oos, cal)
+        # The same numbers for the recent years only (the headline the page leads
+        # with, so early high-skill years can't flatter it) and for the tracked
+        # symbols only (noisier: fewer names per day)
+        recent = oos[oos["date"] >= RECENT_FROM]
+        report_recent = models.evaluate(recent, cal) if len(recent) > 20000 else {}
+        tracked_rows = oos[oos["symbol"].isin(tracked)]
+        report_tracked = models.evaluate(tracked_rows, cal) if len(tracked_rows) > 20000 else {}
         backtest = {
             "version": VERSION, "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "trainedThrough": market_last_complete.strftime("%Y-%m-%d"), "universeHash": universe_hash,
-            "universeSize": len(universe), "trackedSize": len(tracked), "features": len(features),
-            "featureNames": features, "horizons": HORIZONS, "target": models.TARGET,
-            "oosRows": int(len(oos)), "report": report,
+            "universeSize": len(universe), "trackedSize": len(tracked), "features": len(feature_names),
+            "featureNames": feature_names, "horizons": HORIZONS, "target": models.TARGET,
+            "flags": sorted(features.FEATURE_FLAGS), "smoothDays": models.SMOOTH_DAYS, "blend": models.BLEND,
+            "oosRows": int(len(oos)), "report": report, "reportRecent": report_recent, "reportTracked": report_tracked,
+            "recentFrom": RECENT_FROM,
             "calibration": {str(h): {k: v for k, v in c.items()} for h, c in cal.items()},
         }
         del oos
 
     # 4. Final model and forecasts
-    final = models.fit_final(panel, features)
-    fc = models.forecast_latest(panel, features, final, cal, tracked)
+    final = models.fit_final(panel, feature_names)
+    fc = models.forecast_latest(panel, feature_names, final, cal, tracked)
     if not reuse or "importance" not in backtest:
         try:
-            backtest["importance"] = models.feature_importance(final, panel, features, hzn=21)
+            backtest["importance"] = models.feature_importance(final, panel, feature_names, hzn=21)
         except Exception as exc:  # purely informative
             log.warning("feature importance failed: %s", exc)
             backtest["importance"] = []
@@ -477,10 +509,13 @@ def main():
         "asOf": max(t["asOf"] for t in summary_tickers), "session": sess,
         "horizons": HORIZONS, "horizonLabels": {str(h): l for h, l in HORIZON_LABELS.items()},
         "model": {"trainedThrough": final[21]["trained_through"], "nTrain": {str(h): final[h]["n_train"] for h in HORIZONS},
-                  "universeSize": len(universe), "trackedSize": len(tracked), "features": len(features),
-                  "drift": drift, "backtestGeneratedAt": backtest.get("generatedAt"),
+                  "universeSize": len(universe), "trackedSize": len(tracked), "features": len(feature_names),
+                  "drift": drift, "backtestGeneratedAt": backtest.get("generatedAt"), "flags": sorted(features.FEATURE_FLAGS),
                   "calibration": {str(h): {"slope": cal[h]["slope"]} for h in HORIZONS if h in cal}},
         "backtest": backtest.get("report", {}),
+        "backtestRecent": backtest.get("reportRecent", {}),
+        "backtestTracked": backtest.get("reportTracked", {}),
+        "recentFrom": backtest.get("recentFrom"),
         "importance": backtest.get("importance", []),
         "ledger": lstats,
         "market": {
