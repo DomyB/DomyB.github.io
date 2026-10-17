@@ -64,6 +64,8 @@ VARIANTS: dict[str, dict] = {
     # The same model trained on the whole S&P 500 (judged on the tracked symbols only)
     "ref_fund": {"beta_shrink": 0.5, "feature_flags": {"membership", "fund"},
                  "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
+    "ref_fundlite": {"beta_shrink": 0.5, "feature_flags": {"membership", "fund", "fundlite"},
+                     "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
     "ref_earn": {"beta_shrink": 0.5, "feature_flags": {"membership", "earn"},
                  "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
     "ref_ctx2": {"beta_shrink": 0.5, "feature_flags": {"membership", "ctx2"},

@@ -363,6 +363,16 @@ def build_panel(prices: dict[str, pd.DataFrame], context: pd.DataFrame,
         panel[f"zr_{hzn}"] = zb - zb.groupby(level="date").transform("mean")
         panel[f"zrank_{hzn}"] = zb.groupby(level="date").rank(pct=True) - 0.5
 
+    if "fundlite" in FEATURE_FLAGS and "rank_ey" in panel.columns:
+        # Three composites instead of seventeen quarterly columns: the trees were
+        # drowning in slow-moving, mostly-missing features. Value, quality and
+        # fundamental momentum, each the average of its ranks.
+        panel["fund_value"] = panel[["rank_ey", "rank_bm", "rank_cfy"]].mean(axis=1)
+        panel["fund_quality"] = pd.concat([panel["rank_roa"], -panel["rank_ag"], -panel["rank_accr"]], axis=1).mean(axis=1)
+        panel["fund_mom"] = panel["rank_fmom"]
+        drop = [c for c in panel.columns if c in ("ey", "bm", "sp", "cfy", "roa", "cfoa", "ag", "fmom", "accr", "filing_age")
+                or c in ("rank_ey", "rank_bm", "rank_cfy", "rank_roa", "rank_ag", "rank_fmom", "rank_accr")]
+        panel = panel.drop(columns=drop)
     panel = panel.copy()  # defragment after the many column inserts
     skip = CHART_ONLY | {"close"}
     skip |= {c for c in panel.columns if c.startswith(("y_", "z_", "zr_", "zrank_", "sigma_"))}

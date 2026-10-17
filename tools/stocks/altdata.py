@@ -388,9 +388,10 @@ def earnings_events(symbol: str, max_age_days: float = 7) -> pd.DataFrame:
 
 
 def earnings_daily(events: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
-    """Daily features for one stock: days to the next and since the last announcement
-    (in trading days, capped at a quarter), the last surprise, the post-earnings
-    drift signal and the market's two-day reaction to the last announcement."""
+    """Daily features for one stock: days since the last announcement and to the
+    next expected one (a quarter later; in trading days, capped at a quarter), the
+    last surprise, the post-earnings drift signal and the market's two-day
+    reaction to the last announcement."""
     idx = prices.index
     out = pd.DataFrame(index=idx)
     if events is None or events.empty:
@@ -417,22 +418,17 @@ def earnings_daily(events: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
             react[p + 1:] = logc[p + 1] - logc[p - 1]
         elif 1 <= p:
             react[p:] = np.nan
-    next_pos = np.full(len(idx), np.nan)
-    future = sorted(int(p) for p in ev["pos"].to_numpy())
-    j = 0
-    for i in range(len(idx)):
-        while j < len(future) and future[j] < i:
-            j += 1
-        if j < len(future):
-            next_pos[i] = future[j]
+    # The next announcement is *expected* a quarter (63 trading days) after the
+    # last one: a date known on every day, with no peeking at the calendar as it
+    # was eventually published
     i_arr = np.arange(len(idx))
+    next_pos = past_pos + 63
     out["days_to_earn"] = np.clip(next_pos - i_arr, 0, 63) / 63.0
     out["days_since_earn"] = np.clip(i_arr - past_pos, 0, 63) / 63.0
     out["sue_last"] = sue
     out["pead"] = np.where((i_arr - past_pos) <= 60, sue, 0.0)
     out["ear_ret"] = np.clip(react, -0.5, 0.5)
-    out.loc[np.isnan(past_pos), ["days_since_earn", "sue_last", "pead", "ear_ret"]] = np.nan
-    out.loc[np.isnan(next_pos), "days_to_earn"] = np.nan
+    out.loc[np.isnan(past_pos), ["days_to_earn", "days_since_earn", "sue_last", "pead", "ear_ret"]] = np.nan
     return out
 
 
