@@ -120,9 +120,9 @@
     return el("span", { class: "delta delta--" + dir, text: v == null ? "–" : (dir === "flat" ? "0." + Array(d + 1).join("0") + "%" : pct(Math.abs(v), d, false)) });
   }
 
-  function deltaMoney(v, currency) {
+  function deltaMoney(v, currency, digits) {
     var d = dirOf(v, 0.000001);
-    return el("span", { class: "delta delta--" + d, text: v == null ? "–" : money(Math.abs(v), currency, 2) });
+    return el("span", { class: "delta delta--" + d, text: v == null ? "–" : money(Math.abs(v), currency, digits == null ? 2 : digits) });
   }
 
   function dateLong(iso) {
@@ -672,7 +672,7 @@
         el("p", { class: "detail__meta", text: [t.sector, t.industry, t.exchange].filter(Boolean).join(" · ") || (t.type === "ETF" ? "Exchange-traded fund" : "") })),
       el("div", { class: "detail__price" },
         el("p", { class: "detail__price-value" }, el("span", { class: "price-tick" + (q && q.flash ? " is-" + q.flash : ""), text: money(price, t.currency) }), el("small", { text: t.currency })),
-        el("p", { class: "detail__price-change" }, deltaMoney(change, t.currency), " ", delta(changePct, 2, 0.00005)),
+        el("p", { class: "detail__price-change" }, deltaMoney(change, t.currency, Math.abs(price) < 10 ? 4 : 2), " ", delta(changePct, 2, 0.00005)),
         el("p", { class: "detail__price-note" }, note, q ? el("span", { class: "chip chip--live", text: "Live" }) : null)));
     return head;
   }
@@ -755,7 +755,7 @@
         body.appendChild(el("div", { class: "card", style: "margin-bottom:.75rem" },
           el("p", { class: "card__title", text: "Chart score " + (t.scores.technical == null ? "–" : Math.round(t.scores.technical)) + " of 100" }),
           partsList(parts, TECH_PARTS),
-          el("p", { class: "small muted", style: "margin:.6rem 0 0", text: "Trend 30%, momentum 30%, oscillators 15%, volume 15%, volatility 10%. The readings below are what the score is made of." })));
+          el("p", { class: "small muted", style: "margin:.6rem 0 0", text: techWeightsText(parts) })));
       }
       body.appendChild(readingsSection(t, d));
     } else if (tab === "fundamentals") {
@@ -1176,6 +1176,15 @@
   }
 
   var TECH_PARTS = { trend: "Trend", momentum: "Momentum", oscillators: "Oscillators", volume: "Volume", volatility: "Volatility" };
+  var TECH_WEIGHTS = { trend: 0.30, momentum: 0.30, oscillators: 0.15, volume: 0.15, volatility: 0.10 };
+
+  function techWeightsText(parts) {
+    // The pipeline shares a missing part's weight out among the others (a currency pair reports no volume)
+    var avail = Object.keys(TECH_WEIGHTS).filter(function (k) { return parts && parts[k] != null; });
+    var total = avail.reduce(function (a, k) { return a + TECH_WEIGHTS[k]; }, 0) || 1;
+    var text = avail.map(function (k, i) { return (i ? TECH_PARTS[k].toLowerCase() : TECH_PARTS[k]) + " " + Math.round(TECH_WEIGHTS[k] / total * 100) + "%"; }).join(", ");
+    return text + ". The readings below are what the score is made of." + (avail.length < 5 && avail.length ? " No volume is reported for this instrument, so its share goes to the others." : "");
+  }
 
   function partsList(parts, labels) {
     if (!parts) return null;
