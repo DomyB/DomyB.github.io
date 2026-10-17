@@ -434,6 +434,66 @@
 }
 
 
+/* 3a. Market tape ------------------------------------------------------------ */
+
+.tape {
+  display: flex;
+  gap: 0.6rem;
+  margin: 0 0 1.25rem;
+  padding: 0 0 0.4rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.tape__tile {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-areas: "name spark" "price spark";
+  gap: 0.15rem 0.8rem;
+  align-items: center;
+  min-width: 11.5rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.tape__tile:hover {
+  border-color: var(--rule-strong);
+}
+
+.tape__name {
+  grid-area: name;
+  font: 600 0.74rem/1.2 var(--font-sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tape__price {
+  grid-area: price;
+  display: flex;
+  gap: 0.45rem;
+  align-items: baseline;
+  font: 600 0.98rem/1.2 var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+.tape__price small {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.tape__spark {
+  grid-area: spark;
+  width: 4.5rem;
+  height: 1.9rem;
+}
+
+
 /* 3b. At a glance ------------------------------------------------------------ */
 
 .glance {

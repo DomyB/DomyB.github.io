@@ -1,0 +1,174 @@
+# The markets tracked on the Stocks page besides single stocks: the indices,
+# commodities, currency pairs and cryptocurrencies that CFD brokers quote.
+#
+# Each entry has a Yahoo Finance symbol, a display name, a class (index,
+# commodity, currency or crypto), the currency it is quoted in, the name CFD
+# brokers usually give the contract, and a line on what it is. `featured: true`
+# puts the instrument in the market tape at the top of the page. The next data
+# refresh picks up any change.
+
+# Equity indices
+- symbol: ^GSPC
+  name: S&P 500
+  class: index
+  currency: USD
+  cfd: US 500
+  featured: true
+  about: The 500 largest listed US companies weighted by market value; the benchmark for US stocks.
+- symbol: ^NDX
+  name: Nasdaq 100
+  class: index
+  currency: USD
+  cfd: US Tech 100
+  featured: true
+  about: The 100 largest non-financial companies on the Nasdaq, dominated by technology.
+- symbol: ^DJI
+  name: Dow Jones Industrial Average
+  class: index
+  currency: USD
+  cfd: Wall Street 30
+  about: Thirty large US companies, weighted by share price rather than size.
+- symbol: ^RUT
+  name: Russell 2000
+  class: index
+  currency: USD
+  cfd: US 2000
+  about: Two thousand smaller US companies; the usual gauge of US small caps.
+- symbol: FTSEMIB.MI
+  name: FTSE MIB
+  class: index
+  currency: EUR
+  cfd: Italy 40
+  featured: true
+  about: The forty largest companies on the Milan exchange.
+- symbol: ^GDAXI
+  name: DAX
+  class: index
+  currency: EUR
+  cfd: Germany 40
+  featured: true
+  about: The forty largest companies on the Frankfurt exchange, with dividends reinvested.
+- symbol: ^STOXX50E
+  name: Euro Stoxx 50
+  class: index
+  currency: EUR
+  cfd: Europe 50
+  about: Fifty large companies from the euro area.
+- symbol: ^FTSE
+  name: FTSE 100
+  class: index
+  currency: GBP
+  cfd: UK 100
+  about: The hundred largest companies on the London exchange, many of them global miners, banks and oil majors.
+- symbol: ^FCHI
+  name: CAC 40
+  class: index
+  currency: EUR
+  cfd: France 40
+  about: The forty largest companies on the Paris exchange.
+- symbol: ^N225
+  name: Nikkei 225
+  class: index
+  currency: JPY
+  cfd: Japan 225
+  about: Two hundred and twenty-five large Japanese companies, weighted by share price.
+- symbol: ^HSI
+  name: Hang Seng
+  class: index
+  currency: HKD
+  cfd: Hong Kong 50
+  about: The largest companies listed in Hong Kong, including many mainland Chinese groups.
+
+# Commodities (front-month futures)
+- symbol: GC=F
+  name: Gold
+  class: commodity
+  currency: USD
+  cfd: Gold
+  featured: true
+  about: The front-month gold future on COMEX, in US dollars per troy ounce.
+- symbol: SI=F
+  name: Silver
+  class: commodity
+  currency: USD
+  cfd: Silver
+  about: The front-month silver future on COMEX, in US dollars per troy ounce.
+- symbol: CL=F
+  name: WTI crude oil
+  class: commodity
+  currency: USD
+  cfd: Oil - US Crude
+  about: The front-month West Texas Intermediate future on NYMEX, in US dollars per barrel.
+- symbol: BZ=F
+  name: Brent crude oil
+  class: commodity
+  currency: USD
+  cfd: Oil - Brent
+  featured: true
+  about: The front-month Brent future on ICE, the benchmark for most of the world's oil, in US dollars per barrel.
+- symbol: NG=F
+  name: Natural gas
+  class: commodity
+  currency: USD
+  cfd: Natural Gas
+  about: The front-month Henry Hub natural gas future on NYMEX, in US dollars per million British thermal units.
+- symbol: HG=F
+  name: Copper
+  class: commodity
+  currency: USD
+  cfd: Copper
+  about: The front-month copper future on COMEX, in US dollars per pound.
+
+# Currency pairs
+- symbol: EURUSD=X
+  name: EUR/USD
+  class: currency
+  currency: USD
+  cfd: EUR/USD
+  featured: true
+  about: US dollars per euro, the most traded currency pair in the world.
+- symbol: GBPUSD=X
+  name: GBP/USD
+  class: currency
+  currency: USD
+  cfd: GBP/USD
+  about: US dollars per pound sterling.
+- symbol: USDJPY=X
+  name: USD/JPY
+  class: currency
+  currency: JPY
+  cfd: USD/JPY
+  about: Japanese yen per US dollar.
+- symbol: EURGBP=X
+  name: EUR/GBP
+  class: currency
+  currency: GBP
+  cfd: EUR/GBP
+  about: Pounds sterling per euro.
+- symbol: USDCHF=X
+  name: USD/CHF
+  class: currency
+  currency: CHF
+  cfd: USD/CHF
+  about: Swiss francs per US dollar.
+
+# Cryptocurrencies
+- symbol: BTC-USD
+  name: Bitcoin
+  class: crypto
+  currency: USD
+  cfd: Bitcoin
+  featured: true
+  about: Bitcoin against the US dollar, from Yahoo Finance's composite of exchanges; it trades every day of the week.
+- symbol: ETH-USD
+  name: Ethereum
+  class: crypto
+  currency: USD
+  cfd: Ethereum
+  about: Ether against the US dollar; it trades every day of the week.
+- symbol: SOL-USD
+  name: Solana
+  class: crypto
+  currency: USD
+  cfd: Solana
+  about: Solana against the US dollar; it trades every day of the week and has history only from 2020.

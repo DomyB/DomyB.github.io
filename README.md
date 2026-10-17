@@ -152,14 +152,16 @@ Edit mode also warns you about connection names that don't match anything, which
 
 ## 📈 The Stocks page
 
-**https://domyb.github.io/stocks/** tracks a list of stocks and funds with real-time prices, chart
+**https://domyb.github.io/stocks/** tracks a list of stocks and funds, plus the markets CFD brokers
+quote (equity indices, commodities, currency pairs, cryptocurrencies), with real-time prices, chart
 signals, fundamentals and forecasts, and it grades its own forecasts in public as they come due.
 
-- **Overview:** a market strip, three at-a-glance cards (biggest moves, the model's favourites for the
-  horizon you pick, the stocks furthest below fair value), then every tracked stock with its price, a
-  60-day sparkline, the forecast for that horizon (a day, a week, a month, three months) with its 80%
-  band and the chance of a gain, the fair value gap, and a 0–100 score. Search, sector chips, sort any
-  column.
+- **Overview:** a market strip, a tape of the main CFD markets (S&P 500, Nasdaq 100, FTSE MIB, DAX,
+  gold, Brent, EUR/USD, Bitcoin), three at-a-glance cards (biggest stock moves, the model's favourites
+  for the horizon you pick, the stocks furthest below fair value), then every tracked instrument with
+  its price, a 60-day sparkline, the forecast for that horizon (a day, a week, a month, three months)
+  with its 80% band and the chance of a gain, the fair value gap, and a 0–100 score. Search, chips for
+  sectors, funds, indices, commodities, currencies and crypto, sort any column.
 - **A stock's page:** a one-paragraph verdict (model, chart, fundamentals) and five tabs. *Overview:*
   a price chart with moving averages, Bollinger bands and the forecast cone, RSI and MACD, the
   forecasts for every horizon, the scores. *Chart signals:* plain-language readings of trend, momentum,
@@ -185,7 +187,11 @@ output from the last manual run lives in `assets/data/stocks/` as a fallback for
 
 The model forecasts *relative* performance (which stocks beat the others, net of their beta to the
 market) on top of a conservative market drift, because that is the only part of stock returns with a
-measurable, repeatable edge. Survivors only count from the day they joined the S&P 500, so the backtest
+measurable, repeatable edge. The markets (indices, commodities, currencies, crypto) have no peers to be
+ranked against, so `tools/stocks/markets.py` gives them a pooled trend model of their own, trained on
+closes only (Yahoo's open/high/low for currency pairs and futures leak the next day's move), with a
+drift for equity indices and none for the rest; it is backtested, calibrated and graded the same way,
+and the method page says plainly at which horizons it has an edge and at which it has none. Survivors only count from the day they joined the S&P 500, so the backtest
 isn't flattered by hindsight.
 Forecasts are calibrated and their bands sized on the model's own out-of-sample errors. The whole
 method, with its results, is explained on the page itself. **None of it is investment advice.**
@@ -194,6 +200,9 @@ method, with its results, is explained on the page itself. **None of it is inves
 
 - **Add or remove a stock:** edit `_data/stocks.yml` (any Yahoo Finance symbol; Milan listings end in
   `.MI`). The next data run picks it up. Keep the list to liquid, well-known names.
+- **Add or remove a market:** edit `_data/markets.yml` (symbol, name, class, currency, the CFD name,
+  a line about it; `featured: true` puts it in the tape). Indices are `^GSPC`-style symbols, futures
+  end in `=F`, currency pairs in `=X`, crypto is `BTC-USD`-style.
 - **Refresh by hand:** open the **Actions** tab → *Stocks data* → **Run workflow**. Tick *Force a new
   backtest* to retrain from scratch.
 - **Live prices:** while the page is open the browser subscribes to Yahoo Finance's public price

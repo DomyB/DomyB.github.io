@@ -376,6 +376,15 @@
     fundamental: function (t) { return t.scores.fundamental == null ? -Infinity : t.scores.fundamental; }
   };
 
+  function isMarket(t) { return t.group === "market"; }
+  function noFundamentals(t) { return t.type === "ETF" || isMarket(t); }
+  var CLASS_ORDER = ["Index", "Commodity", "Currency", "Crypto"];
+  var CLASS_PLURAL = { Index: "Indices", Commodity: "Commodities", Currency: "Currencies", Crypto: "Crypto" };
+  function cfdName(t) { return t.industry && t.industry.indexOf("CFD: ") === 0 ? t.industry.slice(5) : null; }
+  function marketKind(t) {
+    return t.sector === "Crypto" ? "a cryptocurrency" : t.sector === "Index" ? "an equity index" : t.sector === "Commodity" ? "a commodity future" : t.sector === "Currency" ? "a currency pair" : "a market";
+  }
+
   function liveChange(t) {
     var q = stream.quotes[t.symbol];
     return q && q.changePercent != null ? q.changePercent / 100 : t.changePct;
@@ -398,16 +407,16 @@
   }
 
   function moversCard(s) {
-    var rows = s.tickers.filter(function (t) { return liveChange(t) != null; }).sort(function (a, b) { return Math.abs(liveChange(b)) - Math.abs(liveChange(a)); }).slice(0, 5);
+    var rows = s.tickers.filter(function (t) { return !isMarket(t) && liveChange(t) != null; }).sort(function (a, b) { return Math.abs(liveChange(b)) - Math.abs(liveChange(a)); }).slice(0, 5);
     var anyLive = rows.some(function (t) { return stream.quotes[t.symbol]; });
-    return glanceCard(anyLive ? "Biggest moves right now" : "Biggest moves, last session", rows.map(function (t) {
+    return glanceCard(anyLive ? "Biggest stock moves right now" : "Biggest stock moves, last session", rows.map(function (t) {
       return el("li", {}, glanceLink(t), delta(liveChange(t), 1), el("small", { text: t.symbol + " · " + money(livePrice(t), t.currency) }));
     }), "No prices yet.");
   }
 
   function forecastsCard(s) {
     var h = state.horizon;
-    var rows = s.tickers.filter(function (t) { return t.forecasts[h]; }).sort(function (a, b) { return b.forecasts[h].relRet - a.forecasts[h].relRet; }).slice(0, 5);
+    var rows = s.tickers.filter(function (t) { return !isMarket(t) && t.forecasts[h] && t.forecasts[h].relRet != null; }).sort(function (a, b) { return b.forecasts[h].relRet - a.forecasts[h].relRet; }).slice(0, 5);
     return glanceCard("Model's favourites, " + HORIZON_NAMES[h], rows.map(function (t) {
       var f = t.forecasts[h];
       return el("li", {}, glanceLink(t), delta(f.ret, 1), el("small", { text: Math.round(f.pUp * 100) + "% chance of a gain · " + pct(f.relRet, 1) + " vs the others" }));
@@ -421,10 +430,27 @@
     }), "Nothing trades below its estimated fair value right now.");
   }
 
+  function marketTape(s) {
+    var items = s.tickers.filter(function (t) { return isMarket(t) && t.featured; });
+    if (!items.length) return null;
+    var tape = el("div", { class: "tape", role: "list", "aria-label": "Markets" });
+    items.forEach(function (t) {
+      var spark = el("canvas", { class: "tape__spark", role: "img", "aria-label": "Last 60 closes" });
+      var price = el("span", { class: "tape__price", dataset: { price: t.symbol } });
+      fillPriceCell(price, t);
+      tape.appendChild(el("a", { class: "tape__tile", role: "listitem", href: "#/" + encodeURIComponent(t.symbol), onclick: function (e) { e.preventDefault(); go(t.symbol); } },
+        el("span", { class: "tape__name", text: t.name }), price, spark));
+      sparkline(spark, t.spark, true);
+    });
+    return tape;
+  }
+
   function renderOverview() {
     document.title = "Stocks";
     var s = state.summary;
     view.appendChild(marketStrip(s));
+    var tape = marketTape(s);
+    if (tape) view.appendChild(tape);
 
     var glance = el("div", { class: "glance" });
     view.appendChild(glance);
@@ -437,8 +463,11 @@
     drawGlance();
     glanceRedraw = drawGlance;
 
-    var sectors = {};
-    s.tickers.forEach(function (t) { if (t.sector && t.type !== "ETF") sectors[t.sector] = true; });
+    var sectors = {}, classes = {};
+    s.tickers.forEach(function (t) {
+      if (isMarket(t)) { if (t.sector) classes[t.sector] = true; }
+      else if (t.sector && t.type !== "ETF") sectors[t.sector] = true;
+    });
     var search = el("input", { type: "search", placeholder: "Search by name or symbol", value: state.query, "aria-label": "Search stocks",
       oninput: function (e) { state.query = e.target.value; drawTable(); } });
     var seg = el("div", { class: "seg", role: "group", "aria-label": "Forecast horizon" },
@@ -461,6 +490,7 @@
     chips.appendChild(chip("", "All"));
     Object.keys(sectors).sort().forEach(function (k) { chips.appendChild(chip(k, k)); });
     chips.appendChild(chip("ETF", "Funds"));
+    CLASS_ORDER.forEach(function (k) { if (classes[k]) chips.appendChild(chip(k, CLASS_PLURAL[k])); });
     view.appendChild(chips);
 
     var wrap = el("div", { class: "stocks-table-wrap" });
@@ -514,7 +544,7 @@
         fvCell.appendChild(delta(t.fairValue.marginOfSafety, 0, 0.005));
         fvCell.appendChild(el("small", { text: money(t.fairValue.value, t.currency) }));
       } else {
-        fvCell.appendChild(el("span", { class: "muted", text: t.type === "ETF" ? "fund" : "–" }));
+        fvCell.appendChild(el("span", { class: "muted", text: t.type === "ETF" ? "fund" : isMarket(t) ? (t.sector || "market").toLowerCase() : "–" }));
       }
       var spark = el("canvas", { class: "spark", role: "img", "aria-label": "Last 60 closes" });
       var fcCell = el("td", { class: "fc-cell" });
@@ -534,7 +564,9 @@
         fvCell,
         el("td", { class: "score-cell hide-xs" },
           el("div", { class: "score-cell__row" }, el("b", { text: t.scores.overall == null ? "–" : Math.round(t.scores.overall) }), meter(t.scores.overall, scoreClass(t.scores.overall))),
-          el("small", {}, "Chart " + (t.scores.technical == null ? "–" : Math.round(t.scores.technical)) + " · Fundamentals " + (t.scores.fundamental == null ? "–" : Math.round(t.scores.fundamental))),
+          el("small", {}, noFundamentals(t)
+            ? "Model " + (t.scores.model == null ? "–" : Math.round(t.scores.model)) + " · Chart " + (t.scores.technical == null ? "–" : Math.round(t.scores.technical))
+            : "Chart " + (t.scores.technical == null ? "–" : Math.round(t.scores.technical)) + " · Fundamentals " + (t.scores.fundamental == null ? "–" : Math.round(t.scores.fundamental))),
           t.scores.outlook ? el("div", { class: "score-cell__outlook" }, stance(t.scores.outlook)) : null));
       row.addEventListener("click", function (e) { if (e.target.closest("a")) return; go(t.symbol); });
       sparkline(spark, t.spark, true);
@@ -660,9 +692,10 @@
     var cols = [];
     var f = t.forecasts[21];
     if (f) {
-      var rk = forecastRank(t, 21);
+      var rk = isMarket(t) ? null : forecastRank(t, 21);
       cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Model, next month" }),
-        el("p", {}, "Expects ", delta(f.ret, 1), " with a ", el("b", { text: Math.round(f.pUp * 100) + "%" }), " chance of a gain", rk ? [": ranked ", el("b", { text: rk.rank + " of " + rk.n }), " tracked stocks for the month ahead."] : "."),
+        el("p", {}, "Expects ", delta(f.ret, 1), " with a ", el("b", { text: Math.round(f.pUp * 100) + "%" }), " chance of a gain",
+          rk ? [": ranked ", el("b", { text: rk.rank + " of " + rk.n }), " tracked stocks for the month ahead."] : isMarket(t) ? ", from a trend model on this market's own history." : "."),
         stance(scoreStance(sc.model))));
     }
     var st = t.stances || {};
@@ -676,6 +709,10 @@
         ? el("p", {}, "Fair value ", el("b", { text: money(fv.value, t.currency) }), ", " + pct(Math.abs(fv.marginOfSafety), 0, false) + (fv.marginOfSafety >= 0 ? " above" : " below") + " the price", v ? [". Twelve-month view ", delta(v.expectedReturn12m, 0), " including the dividend."] : ".")
         : el("p", { text: "Not enough data for a fair value." });
       cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Fundamentals" }), fundText, stance(fv ? fv.label : "neutral")));
+    } else if (isMarket(t)) {
+      var cfd = cfdName(t);
+      cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Market" }),
+        el("p", { text: marketKind(t).charAt(0).toUpperCase() + marketKind(t).slice(1) + ", quoted in " + t.currency + "." + (cfd ? " CFD brokers list it as " + cfd + "." : "") + " Fundamentals don't apply; its score is the model and the chart." })));
     } else {
       cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Fundamentals" }), el("p", { text: "A fund has no fundamentals of its own; its score is the model and the chart." })));
     }
@@ -685,7 +722,7 @@
   function detailTabs(t, d) {
     var ul = el("ul", { class: "detail__tabs" });
     Object.keys(DETAIL_TABS).forEach(function (k) {
-      if (k === "fundamentals" && t.type === "ETF") return;
+      if (k === "fundamentals" && noFundamentals(t)) return;
       var extra = null;
       if (k === "record" && d && d.ledger) {
         var n = d.ledger.resolved.length;
@@ -698,7 +735,7 @@
 
   function detailBody(body, t, d) {
     var tab = state.route.tab || "overview";
-    if (tab === "fundamentals" && t.type === "ETF") tab = "overview";
+    if (tab === "fundamentals" && noFundamentals(t)) tab = "overview";
     if (tab === "overview") {
       body.appendChild(summaryTiles(t, d));
       body.appendChild(priceChartCard(t, d));
@@ -759,16 +796,17 @@
   function aboutSection(t, d) {
     var info = (d.fundamentals && d.fundamentals.info) || {};
     var cols = el("div", { class: "two-col" });
-    cols.appendChild(el("div", { class: "card" }, el("p", { class: "card__title", text: t.type === "ETF" ? "The fund" : "The company" }),
+    cols.appendChild(el("div", { class: "card" }, el("p", { class: "card__title", text: isMarket(t) ? "The market" : t.type === "ETF" ? "The fund" : "The company" }),
       el("div", { class: "desc" },
         d.description ? el("p", { text: d.description + (d.description.length >= 600 ? "…" : "") }) : el("p", { class: "muted", text: "No description is available." }),
         d.website ? el("p", {}, el("a", { href: d.website, rel: "noopener", text: d.website.replace(/^https?:\/\//, "") })) : null)));
     cols.appendChild(el("div", { class: "card" }, el("p", { class: "card__title", text: "Listing and data" }), el("table", { class: "kv" }, el("tbody", {},
       kvRow("Symbol", t.symbol), kvRow("Exchange", t.exchange), kvRow("Currency", t.currency),
-      kvRow("Sector", t.sector, t.industry), kvRow("Country", d.country),
+      isMarket(t) ? kvRow("Class", t.sector, cfdName(t) ? "CFD brokers list it as " + cfdName(t) : null) : kvRow("Sector", t.sector, t.industry),
+      isMarket(t) ? null : kvRow("Country", d.country),
       kvRow("Prices as of", dateLong(d.asOf), t.live ? "a session in progress at the time of the run" : "close"),
       kvRow("Last data run", d.generatedAt ? new Date(d.generatedAt).toLocaleString() : "–"),
-      kvRow("Fundamentals fetched", info.fetchedAt ? dateLong(info.fetchedAt.slice(0, 10)) : "–", info.stale ? "Yahoo didn't answer on the last run; showing the previous values" : null),
+      noFundamentals(t) ? null : kvRow("Fundamentals fetched", info.fetchedAt ? dateLong(info.fetchedAt.slice(0, 10)) : "–", info.stale ? "Yahoo didn't answer on the last run; showing the previous values" : null),
       kvRow("Real-time prices", stream.quotes[t.symbol] ? "Streaming from Yahoo Finance" : stream.status === "off" ? "Not available in this browser" : "Stream connected; ticks arrive while the market trades")))));
     return cols;
   }
@@ -1115,7 +1153,8 @@
         el("p", { class: "fc-card__target" }, "to ", el("b", { text: money(anchor * (1 + f.ret), t.currency) }), " · 80% band ", money(anchor * (1 + f.p10), t.currency), " – ", money(anchor * (1 + f.p90), t.currency)),
         bandBar(f),
         el("div", { class: "fc-card__prob" }, el("span", {}, "Chance of a gain ", el("b", { text: Math.round(f.pUp * 100) + "%" })), el("span", {}, "Range ", el("b", { text: pct(f.p10, 0) + " to " + pct(f.p90, 0) }))),
-        el("p", { class: "fc-card__rel" }, "Versus the other tracked stocks: ", delta(f.relRet, 1, 0.0005))));
+        isMarket(t) ? el("p", { class: "fc-card__rel", text: "From the trend model on this market's own history." })
+          : el("p", { class: "fc-card__rel" }, "Versus the other tracked stocks: ", delta(f.relRet, 1, 0.0005))));
     });
     if (d.view12m) {
       var v = d.view12m, dirV = dirOf(v.expectedReturn12m, 0.005);
@@ -1155,11 +1194,15 @@
       if (partsList) c.appendChild(partsList);
       return c;
     }
-    grid.appendChild(card("Overall", sc.overall, "Model 45%, fundamentals 35%, chart 20%. Above 62 reads positive, below 38 negative."));
-    grid.appendChild(card("Model", sc.model, "How strongly the forecasts lean, across horizons, relative to the other tracked stocks."));
+    grid.appendChild(card("Overall", sc.overall, noFundamentals(t)
+      ? "Model 69%, chart 31%: a fund or a market has no fundamentals, so the other two parts are reweighted. Above 62 reads positive, below 38 negative."
+      : "Model 45%, fundamentals 35%, chart 20%. Above 62 reads positive, below 38 negative."));
+    grid.appendChild(card("Model", sc.model, isMarket(t)
+      ? "How strongly the trend model leans, across horizons, against its usual signal strength."
+      : "How strongly the forecasts lean, across horizons, relative to the other tracked stocks."));
     grid.appendChild(card("Chart", sc.technical, "Trend, momentum, oscillators, volume and volatility, weighed as below.",
       partsList(d.technical && d.technical.parts, TECH_PARTS)));
-    if (t.type !== "ETF") {
+    if (!noFundamentals(t)) {
       grid.appendChild(card("Fundamentals", sc.fundamental, "Valuation 35%, quality 25%, growth 20%, safety 10%, analyst sentiment 10%.",
         partsList(d.fundamentals && d.fundamentals.score && d.fundamentals.score.parts, { valuation: "Valuation", quality: "Quality", growth: "Growth", safety: "Safety", sentiment: "Sentiment" })));
     }
@@ -1396,6 +1439,57 @@
         })))));
     }
 
+    var mb = s.backtestMarkets && Object.keys(s.backtestMarkets).length ? s.backtestMarkets : null;
+    var mbRecent = s.backtestMarketsRecent && Object.keys(s.backtestMarketsRecent).length ? s.backtestMarketsRecent : null;
+    var mm = (s.model && s.model.markets) || {};
+    if (mb) {
+      var mhs = [1, 5, 21, 63].filter(function (h) { return mb[h]; });
+      box.appendChild(section("Indices, commodities, currencies and crypto"));
+      box.appendChild(el("p", { text: "The markets CFD brokers quote have no peers to be ranked against, so they get a model of their own: one pooled trend model, trained across all " + (mm.instruments || "the") + " instruments at once, that learns how an instrument's own recent behaviour (returns over many windows, volatility, trend and oscillator readings, and the state of the US market) relates to its volatility-scaled return over the next day, week, month and quarter. That is the time-series momentum effect documented for futures and currencies, and nothing more exotic. It is a single ridge regression on closing prices only: boosted trees overfit this smaller, noisier data set, and Yahoo's open, high and low for currency pairs and futures turned out to leak the next day's move (a bookkeeping artefact that would have faked an 80% hit rate), so they are kept out. The drift is half the historical average for equity indices, as for stocks, and zero for everything else, because there is no reliable premium to assume for a currency pair, a barrel of oil or a coin. Calibration and the walk-forward protocol are the ones used for stocks; the bands and the odds come from each asset class's own out-of-sample errors." }));
+      function marketsTable(src, caption) {
+        var hz = mhs.filter(function (h) { return src[h]; });
+        return el("div", { class: "card wide" }, caption ? el("p", { class: "card__title", text: caption }) : null, el("table", { class: "record-table" },
+          el("thead", {}, el("tr", {}, el("th", { text: "Horizon" }), el("th", { text: "Up direction" }), el("th", { text: "always up" }), el("th", { text: "Signal right" }), el("th", { text: "12-month trend rule" }), el("th", { text: "Pooled IC" }), el("th", { text: "t-stat" }), el("th", { text: "Inside 80% band" }), el("th", { text: "Forecasts" }))),
+          el("tbody", {}, hz.map(function (h) {
+            var r = src[h], rule = (r.baselines || {}).f_trend12;
+            return el("tr", {}, el("td", { text: HORIZON_NAMES[h] }),
+              el("td", { class: r.hit_rate > r.up_rate ? "good" : "", text: pct(r.hit_rate, 1, false) }), el("td", { class: "muted", text: pct(r.up_rate, 1, false) }),
+              el("td", { class: r.signal_hit_rate > 0.505 ? "good" : "", text: pct(r.signal_hit_rate, 1, false) }), el("td", { class: "muted", text: rule ? pct(rule.signal_hit_rate, 1, false) : "–" }),
+              el("td", { text: num(r.ic_pooled, 3) }), el("td", { class: r.signal_t >= 2 ? "good" : "", text: num(r.signal_t, 1) }),
+              el("td", { text: pct(r.coverage80_out_of_time, 0, false) }), el("td", { text: compact(r.n) }));
+          }))));
+      }
+      if (mbRecent) {
+        box.appendChild(marketsTable(mbRecent, "Since " + dateLong(s.recentFrom || "2021-01-01") + " (the recent years)"));
+        box.appendChild(el("div", { style: "height:.75rem" }));
+        box.appendChild(marketsTable(mb, "Whole test period, " + dateLong(mb[mhs[0]].from).slice(-4) + "–" + dateLong(mb[mhs[0]].to).slice(-4)));
+      } else {
+        box.appendChild(marketsTable(mb));
+      }
+      box.appendChild(el("p", { class: "small muted" }, el("strong", { text: "Signal right: " }), "how often the model's deviation from the drift had the right sign; a coin flip scores 50%. ", el("strong", { text: "12-month trend rule: " }), "the same for the simplest trend-following rule (bet on the sign of the past year's return), which the model has to beat. ", el("strong", { text: "Pooled IC: " }), "the rank correlation between signal and outcome over every instrument-day. ", el("strong", { text: "t-stat: " }), "Newey-West, on the daily average of signal × outcome, so overlapping horizons don't flatter it; below 2 means no reliable edge."));
+      var byClassH = mhs.indexOf(21) >= 0 ? 21 : mhs[0];
+      var bc = (mb[byClassH] || {}).by_class || {};
+      var classKeys = ["index", "commodity", "currency", "crypto"].filter(function (k) { return bc[k]; });
+      if (classKeys.length) {
+        var classNames = { index: "Equity indices", commodity: "Commodities", currency: "Currency pairs", crypto: "Cryptocurrencies" };
+        box.appendChild(el("h3", { text: "By asset class, " + HORIZON_NAMES[byClassH] + " horizon" }));
+        box.appendChild(el("div", { class: "card wide" }, el("table", { class: "record-table" },
+          el("thead", {}, el("tr", {}, el("th", { text: "Class" }), el("th", { text: "Up direction" }), el("th", { text: "always up" }), el("th", { text: "Signal right" }), el("th", { text: "Pooled IC" }), el("th", { text: "t-stat" }), el("th", { text: "Forecasts" }))),
+          el("tbody", {}, classKeys.map(function (k) {
+            var r = bc[k];
+            return el("tr", {}, el("td", { text: classNames[k] }), el("td", { class: r.hit_rate > r.up_rate ? "good" : "", text: pct(r.hit_rate, 1, false) }), el("td", { class: "muted", text: pct(r.up_rate, 1, false) }),
+              el("td", { class: r.signal_hit_rate > 0.505 ? "good" : "", text: pct(r.signal_hit_rate, 1, false) }), el("td", { text: num(r.ic_pooled, 3) }), el("td", { class: r.signal_t >= 2 ? "good" : "", text: num(r.signal_t, 1) }), el("td", { text: compact(r.n) }));
+          })))));
+      }
+      var mHead = mbRecent || mb;
+      var mBest = mhs.slice().sort(function (a, b) { return ((mHead[b] || mb[b]).signal_t || 0) - ((mHead[a] || mb[a]).signal_t || 0); })[0];
+      var mr = (mHead[mBest] || mb[mBest]);
+      box.appendChild(el("div", { class: "verdict" }, el("p", {}, el("strong", { text: "The honest summary for the markets. " }),
+        mr.signal_t >= 2
+          ? "The trend model's best horizon is " + HORIZON_NAMES[mBest] + " (t-statistic " + num(mr.signal_t, 1) + "): a real but small edge, mostly in the direction the past year already pointed. Horizons with a t-statistic below 2 should be read as \"no reliable edge\"; there the forecast is essentially the drift with honest, wide bands."
+          : "No horizon reaches a t-statistic of 2 (best: " + HORIZON_NAMES[mBest] + ", " + num(mr.signal_t, 1) + "), so the calibration scales the signal down to almost nothing and the forecasts are essentially the drift with honest, wide bands. The charts, readings and bands are still useful; the direction is not something this model can call.")));
+    }
+
     if (s.importance && s.importance.length) {
       box.appendChild(section("What the model pays attention to"));
       box.appendChild(el("p", { text: "Permutation importance for the one-month model on recent data: how much worse the forecasts get when each feature is scrambled, as a share of the total." }));
@@ -1423,12 +1517,27 @@
         })))));
     }
 
+    var LM = s.ledgerMarkets || {}, lmh = LM.horizons || {};
+    var gradedM = Object.keys(lmh).reduce(function (n, k) { return n + (lmh[k].n || 0); }, 0);
+    if (gradedM) {
+      box.appendChild(el("h3", { text: "The markets' track record" }));
+      box.appendChild(el("div", { class: "card wide" }, el("table", { class: "record-table" },
+        el("thead", {}, el("tr", {}, el("th", { text: "Horizon" }), el("th", { text: "Graded" }), el("th", { text: "Up direction" }), el("th", { text: "always up" }), el("th", { text: "Inside 80% band" }), el("th", { text: "Rank skill" }))),
+        el("tbody", {}, [1, 5, 21, 63].filter(function (h) { return lmh[h] && lmh[h].n; }).map(function (h) {
+          var r = lmh[h];
+          return el("tr", {}, el("td", { text: HORIZON_NAMES[h] }), el("td", { text: r.n }), el("td", { text: pct(r.hit_rate, 0, false) }), el("td", { class: "muted", text: pct(r.up_rate, 0, false) }),
+            el("td", { text: pct(r.coverage80, 0, false) }), el("td", { text: r.ic_pooled == null ? "–" : num(r.ic_pooled, 3) }));
+        })))));
+    } else if (LM.pending) {
+      box.appendChild(el("p", { class: "small muted", text: "The markets' forecasts are graded the same way; " + LM.pending + " are pending." }));
+    }
+
     box.appendChild(section("Fundamentals and the scores"));
     box.appendChild(el("p", { text: "Fundamentals move slowly, so they say little about next week but are the only thing that says anything about next year. Three classic methods are blended into a fair value: earnings power (next year's expected earnings times a justified price/earnings ratio, half from what the market pays the company's sector peers here and half from its own expected growth), a ten-year discounted cash flow (free cash flow growing at the recent revenue growth rate, fading to 2.5%, discounted at a rate that rises with the stock's beta, plus net cash), and the analysts' mean target when at least four cover the stock. Banks and insurers use book value instead of cash flow. The methods are blended geometrically, so one generous estimate can't dominate, and a method that lands more than five times away from the price is set aside as a data error or a method that doesn't apply to that company (each stock's page shows which, and why). The 12-month view assumes half of the gap to fair value closes within a year, plus the dividend; it is not backtested, which is why it sits apart from the model's forecasts and why the track record grades it separately." }));
     box.appendChild(el("p", { text: "The fundamental score (0–100) weighs valuation 35%, quality 25% (margins, return on equity, cash conversion), growth 20%, safety 10% (debt, liquidity, beta) and analyst sentiment 10%. The chart score weighs trend 30%, momentum 30%, oscillators 15%, volume 15% and volatility 10%. The overall score is 45% model, 35% fundamentals and 20% chart; funds have no fundamentals, so theirs is model and chart only. None of it is advice: the scores summarise evidence, they don't know your situation." }));
 
     box.appendChild(section("Data and refresh"));
-    box.appendChild(el("p", { text: "Prices and company data come from Yahoo Finance and are refreshed automatically during US and European trading hours and after each close (the time of the last run is at the top of the page). The model is retrained every day after the US close on " + (m.universeSize || "about 200") + " stocks; the latest model was trained through " + dateLong(m.trainedThrough) + ". The whole thing runs on GitHub Actions and publishes plain JSON files that this page reads; the code is in the blog's repository under tools/stocks." }));
+    box.appendChild(el("p", { text: "Prices and company data come from Yahoo Finance and are refreshed automatically during US and European trading hours and after each close (the time of the last run is at the top of the page). The stock model is retrained every day after the US close on " + (m.universeSize || "about 200") + " stocks, and the markets model on " + (mm.instruments || "the tracked") + " instruments; the latest models were trained through " + dateLong(m.trainedThrough) + ". The whole thing runs on GitHub Actions and publishes plain JSON files that this page reads; the code is in the blog's repository under tools/stocks." }));
     box.appendChild(el("p", { text: "Prices on the page update in real time while you have it open: the browser subscribes to Yahoo Finance's public price stream for the tracked symbols, with no key and no server in between, and the indicator in the top corner says whether the stream is connected. The forecasts, scores and fundamentals change only when a data run completes." }));
     box.appendChild(el("p", {}, el("a", { href: "#/", text: "← Back to the overview" })));
   }
@@ -1586,8 +1695,7 @@
   function applyQuote(sym) {
     var t = tickerBySymbol(sym), q = stream.quotes[sym];
     if (!t || !q) return;
-    var cell = view.querySelector('[data-price="' + sym + '"]');
-    if (cell) fillPriceCell(cell, t);
+    Array.prototype.forEach.call(view.querySelectorAll('[data-price="' + sym + '"]'), function (cell) { fillPriceCell(cell, t); });
     var head = view.querySelector('[data-head="' + sym + '"]');
     if (head) head.parentNode.replaceChild(detailHead(t), head);
     var range = view.querySelector('[data-range="' + sym + '"]');

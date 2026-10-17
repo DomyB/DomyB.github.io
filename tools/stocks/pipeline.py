@@ -5,13 +5,17 @@
 
 Steps, in order:
 
-1. Read the tracked symbols from _data/stocks.yml and download twelve years of
-   daily prices for them, for the extra training symbols and for the market
-   context series (S&P 500, VIX, 10-year yield).
+1. Read the tracked symbols from _data/stocks.yml and the markets (indices,
+   commodities, currencies, crypto) from _data/markets.yml, and download
+   sixteen years of daily prices for them, for the extra training symbols and
+   for the market context series (S&P 500, VIX, 10-year yield).
 2. Compute technical features and forecast targets for every stock and day.
 3. Backtest the model walk-forward (reused from the previous run when nothing
-   new has closed since), calibrate it and measure how good it really is.
-4. Fit the final model and forecast every tracked stock over four horizons.
+   new has closed since), calibrate it and measure how good it really is. The
+   markets get their own trend model (tools/stocks/markets.py), backtested the
+   same way.
+4. Fit the final models and forecast every tracked stock and market over four
+   horizons.
 5. Fetch fundamentals, estimate fair values and score each company.
 6. Record today's forecasts in the ledger and grade the old ones that have
    come due, so the page can show a live track record.
@@ -46,6 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import models  # noqa: E402
 import features  # noqa: E402
+import markets  # noqa: E402
 from datafeed import CONTEXT_SYMBOLS, download_prices, fetch_all_info, market_session_state  # noqa: E402
 from features import HORIZON_LABELS, HORIZONS, build_panel, context_features, indicators  # noqa: E402
 from fundamentals import fair_value, fundamental_score, fundamental_view, sector_medians  # noqa: E402
@@ -139,6 +144,27 @@ def load_universe(limit: int | None):
     if limit:
         tracked, training = tracked[:limit], training[:limit]
     return tracked, training, names
+
+
+def load_markets(limit: int | None) -> list[dict]:
+    """The CFD-style markets from _data/markets.yml: symbol, name, class, currency, cfd name, blurb."""
+    path = os.path.join(ROOT, "_data", "markets.yml")
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        entries = yaml.safe_load(fh) or []
+    out, seen = [], set()
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        sym = str(e.get("symbol", "")).strip().upper()
+        if not sym or sym in seen or e.get("class") not in markets.CLASSES:
+            continue
+        seen.add(sym)
+        out.append({"symbol": sym, "name": str(e.get("name") or sym), "class": e["class"],
+                    "currency": str(e.get("currency") or "USD"), "cfd": e.get("cfd"),
+                    "about": str(e.get("about") or ""), "featured": bool(e.get("featured"))})
+    return out[:limit] if limit else out
 
 
 def load_membership() -> dict:
@@ -301,12 +327,18 @@ def main():
 
     # 1. Universe and prices
     tracked, training, names = load_universe(args.limit)
-    log.info("%d tracked symbols, %d extra training symbols", len(tracked), len(training))
+    mkts = [m for m in load_markets(args.limit) if m["symbol"] not in tracked]
+    log.info("%d tracked symbols, %d extra training symbols, %d markets", len(tracked), len(training), len(mkts))
     features.FEATURE_FLAGS = set(features.PRODUCTION_FLAGS)
     sector_etfs = sorted(set(SECTOR_ETFS.values())) if "sector" in features.FEATURE_FLAGS else []
-    prices = download_prices(tracked + training + list(CONTEXT_SYMBOLS.values()) + sector_etfs, years=args.years)
+    prices = download_prices(tracked + training + list(CONTEXT_SYMBOLS.values()) + sector_etfs + [m["symbol"] for m in mkts],
+                             years=args.years)
     tracked = [s for s in tracked if s in prices]
     training = [s for s in training if s in prices]
+    mkts = [m for m in mkts if m["symbol"] in prices]
+    msyms = [m["symbol"] for m in mkts]
+    mclass = {m["symbol"]: m["class"] for m in mkts}
+    minfo = {m["symbol"]: m for m in mkts}
     if "membership" in features.FEATURE_FLAGS:
         features.MEMBERSHIP = load_membership()
     market = prices.get(CONTEXT_SYMBOLS["market"])
@@ -314,7 +346,8 @@ def main():
         raise SystemExit("no market data (SPY): giving up")
 
     partial = {s for s in tracked + training if is_partial(s, prices[s].index[-1], now)}
-    for s in partial:
+    partial_m = {s for s in msyms if markets.is_partial(s, mclass[s], prices[s].index[-1], now)}
+    for s in partial | partial_m:
         prices[s].iloc[-1, prices[s].columns.get_loc("volume")] = np.nan  # a half day's volume says nothing
     market_last_complete = market.index[-2] if CONTEXT_SYMBOLS["market"] in partial else market.index[-1]
     log.info("prices downloaded; %d symbols have a live (unfinished) bar; last complete market day %s",
@@ -328,6 +361,10 @@ def main():
     # A "real" cross-section needs 30 names; with a small test universe, settle for half of it
     models.MIN_CROSS_SECTION = min(30, max(10, len(universe) // 2))
     log.info("panel: %d rows × %d features", len(panel), len(feature_names))
+    mpanel, mfeatures = (markets.build_market_panel({s: prices[s] for s in msyms}, ctx, mclass, partial_m)
+                         if msyms else (None, []))
+    if mpanel is not None:
+        log.info("markets panel: %d rows × %d features", len(mpanel), len(mfeatures))
 
     # 3. Backtest (reused when nothing new has closed since the previous one)
     # Only the entry dates of symbols in this universe matter: a membership refresh
@@ -382,6 +419,47 @@ def main():
     drift = {str(h): final[h]["drift"] for h in HORIZONS}
     log.info("forecasts ready (%d rows) in %.0fs", len(fc), time.time() - t_start)
 
+    # 3b/4b. The markets: their own backtest (reused the same way) and forecasts
+    mbt, mcal, mfinal, mfc = {}, {}, {}, pd.DataFrame()
+    if msyms:
+        m_knobs = repr((markets.VERSION, markets.TRAIN_STRIDE, sorted(markets.DRIFT_CLASSES), models.GBM_PARAMS,
+                        models.RIDGE_ALPHA, markets.ENSEMBLE_WEIGHTS, models.DRIFT_SHRINK, features.FEATURE_VERSION))
+        m_hash = hashlib.sha1(("|".join(sorted(msyms)) + "|" + "|".join(mfeatures) + "|" + m_knobs).encode()).hexdigest()[:12]
+        prev_m = (prev_bt or {}).get("markets") or {}
+        m_reuse = (not args.full and prev_m.get("universeHash") == m_hash
+                   and prev_m.get("trainedThrough") == market_last_complete.strftime("%Y-%m-%d")
+                   and all(str(h) in prev_m.get("calibration", {}) for h in HORIZONS))
+        moos = None
+        if m_reuse:
+            log.info("markets backtest from %s is still current: reusing it", prev_m["generatedAt"])
+            mbt = prev_m
+            mcal = {int(h): c for h, c in prev_m["calibration"].items()}
+        else:
+            log.info("running the markets walk-forward backtest")
+            try:
+                moos = markets.walk_forward(mpanel, mfeatures)
+            except RuntimeError as exc:  # a tiny test run: show the markets without forecasts
+                log.warning("markets backtest skipped: %s", exc)
+                moos = None
+        if moos is not None and not m_reuse:
+            mcal = markets.calibrate(moos)
+            mrecent = moos[moos["date"] >= RECENT_FROM]
+            mbt = {
+                "version": markets.VERSION, "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "trainedThrough": market_last_complete.strftime("%Y-%m-%d"), "universeHash": m_hash,
+                "instruments": msyms, "classes": mclass, "features": len(mfeatures), "featureNames": mfeatures,
+                "oosRows": int(len(moos)), "report": markets.evaluate(moos, mcal),
+                "reportRecent": markets.evaluate(mrecent, mcal) if len(mrecent) > 5000 else {},
+                "recentFrom": RECENT_FROM,
+                "calibration": {str(h): {k: v for k, v in c.items()} for h, c in mcal.items()},
+            }
+            del moos
+        if mcal:
+            mfinal = markets.fit_final(mpanel, mfeatures)
+            mfc = markets.forecast_latest(mpanel, mfeatures, mfinal, mcal)
+            log.info("market forecasts ready (%d rows) in %.0fs", len(mfc), time.time() - t_start)
+    backtest["markets"] = mbt
+
     # 5. Fundamentals
     prev_summary = read_prev(args.prev, "summary.json") or {}
     prev_tickers = {t["symbol"]: t for t in prev_summary.get("tickers", [])}
@@ -402,42 +480,57 @@ def main():
 
     # 6. Ledger
     ledger = (read_prev(args.prev, "ledger.json.gz") or {}).get("entries", [])
-    ledger = update_ledger(ledger, fc, prices, partial, tracked)
+    fc_all = pd.concat([fc, mfc], ignore_index=True) if len(mfc) else fc
+    ledger = update_ledger(ledger, fc_all, prices, partial | partial_m, tracked)
     lstats = ledger_stats(ledger, tracked)
+    mlstats = ledger_stats(ledger, msyms) if msyms else {}
 
     # 7. Per-ticker files and the summary
     os.makedirs(os.path.join(args.out, "tickers"), exist_ok=True)
     latest_rows = panel.groupby(level="symbol").tail(1)
     latest_rows.index = latest_rows.index.get_level_values("symbol")
+    if mpanel is not None:
+        mlatest_rows = mpanel.groupby(level="symbol").tail(1)
+        mlatest_rows.index = mlatest_rows.index.get_level_values("symbol")
     summary_tickers = []
     breadth_above200 = breadth_up = 0
-    for sym in tracked:
+    for sym in tracked + msyms:
         df = prices[sym]
-        info = infos.get(sym) or {}
-        row = latest_rows.loc[sym].to_dict() if sym in latest_rows.index else {}
+        is_market = sym in minfo
+        mk = minfo.get(sym, {})
+        info = {} if is_market else (infos.get(sym) or {})
+        if is_market:
+            row = mlatest_rows.loc[sym].to_dict() if sym in mlatest_rows.index else {}
+        else:
+            row = latest_rows.loc[sym].to_dict() if sym in latest_rows.index else {}
         ind = indicators(df)
         close = float(df["close"].iloc[-1])
         prev_close = float(df["close"].iloc[-2]) if len(df) > 1 else None
-        quote_type = info.get("quoteType") or ("ETF" if sym in ("SPY", "QQQ", "IWM", "GLD", "TLT", "DIA") else "EQUITY")
-        name = names.get(sym) or info.get("shortName") or info.get("longName") or sym
-        currency = info.get("currency") or ("EUR" if sym.endswith(".MI") else "USD")
+        if is_market:
+            quote_type, name, currency = markets.QUOTE_TYPE[mk["class"]], mk["name"], mk["currency"]
+        else:
+            quote_type = info.get("quoteType") or ("ETF" if sym in ("SPY", "QQQ", "IWM", "GLD", "TLT", "DIA") else "EQUITY")
+            name = names.get(sym) or info.get("shortName") or info.get("longName") or sym
+            currency = info.get("currency") or ("EUR" if sym.endswith(".MI") else "USD")
+        no_fundamentals = is_market or quote_type == "ETF"
 
         fcs = {}
-        for r in fc[fc["symbol"] == sym].itertuples():
+        for r in (mfc if is_market else fc)[(mfc if is_market else fc)["symbol"] == sym].itertuples():
             fcs[int(r.h)] = {"ret": r.ret, "relRet": r.rel_ret, "p10": r.p10, "p25": r.p25, "p75": r.p75,
                              "p90": r.p90, "pUp": r.p_up, "conviction": r.conviction, "sigma": r.sigma,
                              "drift": r.drift, "z": r.z}
         readings, parts = technical_readings(row)
         tscore = technical_score(parts)
-        fv = fair_value(info, close, medians) if quote_type != "ETF" else {"methods": {}, "inputs": {}}
-        fscore = fundamental_score(info, close, medians, fv) if quote_type != "ETF" else {}
+        fv = fair_value(info, close, medians) if not no_fundamentals else {"methods": {}, "inputs": {}}
+        fscore = fundamental_score(info, close, medians, fv) if not no_fundamentals else {}
         view = fundamental_view(fv, info, close) if fv.get("value") else None
         mscore = model_score(fcs)
         oscore = overall_score(mscore, tscore, fscore.get("score"))
-        if row.get("sma200_gap") is not None and row["sma200_gap"] > 0:
-            breadth_above200 += 1
-        if fcs.get(21, {}).get("pUp", 0.5) > 0.5:
-            breadth_up += 1
+        if not is_market:
+            if row.get("sma200_gap") is not None and row["sma200_gap"] > 0:
+                breadth_above200 += 1
+            if fcs.get(21, {}).get("pUp", 0.5) > 0.5:
+                breadth_up += 1
 
         hist = df.tail(HISTORY_BARS)
         ind_h = ind.loc[hist.index]
@@ -445,7 +538,7 @@ def main():
         year_start = df[df.index.year == df.index[-1].year]
         stats = {
             "high52": rprice(df["high"].tail(252).max()), "low52": rprice(df["low"].tail(252).min()),
-            "avgVolume20": int(np.nan_to_num(df["volume"].tail(20).mean())),
+            "avgVolume20": int(np.nan_to_num(df["volume"].tail(20).mean())) or None,
             "vol21": r4(row.get("vol21")), "beta63": r4(row.get("beta63")),
             "ytd": r4(close / float(year_start["close"].iloc[0]) - 1) if len(year_start) > 1 else None,
             "ret1y": r4(close / float(df["close"].iloc[-253]) - 1) if len(df) > 253 else None,
@@ -454,14 +547,18 @@ def main():
         }
         sym_ledger = [e for e in ledger if e["symbol"] == sym]
         header = {
-            "symbol": sym, "name": name, "sector": info.get("sector"), "industry": info.get("industry"),
+            "symbol": sym, "name": name,
+            "sector": markets.CLASS_LABEL[mk["class"]] if is_market else info.get("sector"),
+            "industry": (("CFD: " + mk["cfd"]) if mk.get("cfd") else None) if is_market else info.get("industry"),
+            "group": "market" if is_market else "stock", "assetClass": mk.get("class") if is_market else None,
+            "featured": bool(mk.get("featured")) if is_market else False,
             "type": quote_type, "currency": currency, "exchange": info.get("exchange"),
             "price": rprice(close), "prevClose": rprice(prev_close),
             "change": rprice(close - prev_close) if prev_close else None,
             "changePct": r4(close / prev_close - 1) if prev_close else None,
             "open": rprice(df["open"].iloc[-1]), "dayHigh": rprice(df["high"].iloc[-1]), "dayLow": rprice(df["low"].iloc[-1]),
             "volume": int(np.nan_to_num(df["volume"].iloc[-1])) or None,
-            "asOf": df.index[-1].strftime("%Y-%m-%d"), "live": sym in partial,
+            "asOf": df.index[-1].strftime("%Y-%m-%d"), "live": sym in (partial_m if is_market else partial),
             "marketCap": info.get("marketCap"),
             "scores": {"model": mscore, "technical": tscore, "fundamental": fscore.get("score"), "overall": oscore,
                        "outlook": outlook_label(oscore)},
@@ -474,7 +571,7 @@ def main():
                                 "stances": {g: _group_stance(readings, g) for g in ("trend", "momentum", "oscillators", "volume")}})
         dump({
             **header, "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "description": (info.get("longBusinessSummary") or "")[:600],
+            "description": mk.get("about") if is_market else (info.get("longBusinessSummary") or "")[:600],
             "website": info.get("website"), "country": info.get("country"),
             "history": {
                 "dates": [d.strftime("%Y-%m-%d") for d in hist.index],
@@ -496,9 +593,10 @@ def main():
                           "raw": {k: r4(row.get(k)) for k in ("rsi14", "rsi2", "bb_pctb", "sma50_gap", "sma200_gap",
                                                               "mom12_1", "vol21", "vol_ratio", "atr_pct", "beta63",
                                                               "rank_mom12_1", "rank_ret21", "rank_vol21")}},
-            "fundamentals": {"info": info, "fairValue": fv, "score": fscore, "view12m": view,
-                             "peers": {"sector": info.get("sector"), "medians": medians.get(info.get("sector") or "_", {}),
-                                       "all": medians.get("_all", {})}},
+            "fundamentals": None if is_market else {
+                "info": info, "fairValue": fv, "score": fscore, "view12m": view,
+                "peers": {"sector": info.get("sector"), "medians": medians.get(info.get("sector") or "_", {}),
+                          "all": medians.get("_all", {})}},
             "ledger": {"resolved": [e for e in sym_ledger if e.get("resolved")][-400:],
                        "pending": [e for e in sym_ledger if not e.get("resolved")]},
         }, os.path.join(args.out, "tickers", f"{sym}.json"))
@@ -508,13 +606,21 @@ def main():
     tnx = prices.get(CONTEXT_SYMBOLS["rates"])
     summary = {
         "version": VERSION, "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "asOf": max(t["asOf"] for t in summary_tickers), "session": sess,
+        "asOf": max(t["asOf"] for t in summary_tickers if t["group"] == "stock"), "session": sess,
         "horizons": HORIZONS, "horizonLabels": {str(h): l for h, l in HORIZON_LABELS.items()},
         "model": {"trainedThrough": final[21]["trained_through"], "nTrain": {str(h): final[h]["n_train"] for h in HORIZONS},
                   "universeSize": len(universe), "trackedSize": len(tracked), "features": len(feature_names),
                   "drift": drift, "backtestGeneratedAt": backtest.get("generatedAt"), "flags": sorted(features.FEATURE_FLAGS),
-                  "calibration": {str(h): {"slope": cal[h]["slope"]} for h in HORIZONS if h in cal}},
+                  "calibration": {str(h): {"slope": cal[h]["slope"]} for h in HORIZONS if h in cal},
+                  "markets": ({"trainedThrough": mfinal[21]["trained_through"], "instruments": len(msyms),
+                               "features": len(mfeatures), "nTrain": {str(h): mfinal[h]["n_train"] for h in HORIZONS if h in mfinal},
+                               "drift": {str(h): mfinal[h]["drift"] for h in HORIZONS if h in mfinal},
+                               "calibration": {str(h): {"slope": mcal[h]["slope"]} for h in HORIZONS if h in mcal},
+                               "backtestGeneratedAt": mbt.get("generatedAt")} if msyms and 21 in mfinal else None)},
         "backtest": backtest.get("report", {}),
+        "backtestMarkets": mbt.get("report", {}),
+        "backtestMarketsRecent": mbt.get("reportRecent", {}),
+        "ledgerMarkets": mlstats,
         "backtestRecent": backtest.get("reportRecent", {}),
         "backtestTracked": backtest.get("reportTracked", {}),
         "recentFrom": backtest.get("recentFrom"),
