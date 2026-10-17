@@ -51,6 +51,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import models  # noqa: E402
 import features  # noqa: E402
 import markets  # noqa: E402
+import altdata  # noqa: E402
 from datafeed import CONTEXT_SYMBOLS, download_prices, fetch_all_info, market_session_state  # noqa: E402
 from features import HORIZON_LABELS, HORIZONS, build_panel, context_features, indicators  # noqa: E402
 from fundamentals import fair_value, fundamental_score, fundamental_view, sector_medians  # noqa: E402
@@ -343,7 +344,8 @@ def main():
     log.info("%d tracked symbols, %d extra training symbols, %d markets", len(tracked), len(training), len(mkts))
     features.FEATURE_FLAGS = set(features.PRODUCTION_FLAGS)
     sector_etfs = sorted(set(SECTOR_ETFS.values())) if "sector" in features.FEATURE_FLAGS else []
-    prices = download_prices(tracked + training + list(CONTEXT_SYMBOLS.values()) + sector_etfs + [m["symbol"] for m in mkts],
+    ctx2_syms = sorted(altdata.CTX2_YAHOO.values()) if "ctx2" in features.FEATURE_FLAGS else []
+    prices = download_prices(tracked + training + list(CONTEXT_SYMBOLS.values()) + sector_etfs + ctx2_syms + [m["symbol"] for m in mkts],
                              years=args.years)
     tracked = [s for s in tracked if s in prices]
     training = [s for s in training if s in prices]
@@ -366,15 +368,24 @@ def main():
     log.info("prices downloaded; %d symbols have a live (unfinished) bar; last complete market day %s",
              len(partial), market_last_complete.date())
 
-    # 2. Features
-    ctx = context_features(market, prices.get(CONTEXT_SYMBOLS["vix"]), prices.get(CONTEXT_SYMBOLS["rates"]))
+    # 2. Features (the markets model keeps the base context, without the ctx2 pack)
+    ctx_base = context_features(market, prices.get(CONTEXT_SYMBOLS["vix"]), prices.get(CONTEXT_SYMBOLS["rates"]))
+    ctx = ctx_base
+    if "ctx2" in features.FEATURE_FLAGS:
+        ctx = context_features(market, prices.get(CONTEXT_SYMBOLS["vix"]), prices.get(CONTEXT_SYMBOLS["rates"]), altdata.context_extra(prices))
+    alt_flags = features.FEATURE_FLAGS & {"fund", "earn"}
+    alt_store, extra = None, None
+    if alt_flags:
+        alt_store = altdata.refresh_store(altdata.load_store(args.prev), tracked + training, now)
+        extra = altdata.frames_from_store(alt_store, prices, tracked + training, alt_flags)
+        log.info("alternative data frames for %d symbols (%s)", len(extra), ", ".join(sorted(alt_flags)))
     universe = {s: prices[s] for s in tracked + training}
     sector_prices = {name: prices[etf] for name, etf in SECTOR_ETFS.items() if etf in prices} if sector_etfs else None
-    panel, feature_names = build_panel(universe, ctx, partial, sectors=SECTOR, sector_prices=sector_prices)
+    panel, feature_names = build_panel(universe, ctx, partial, sectors=SECTOR, sector_prices=sector_prices, extra=extra)
     # A "real" cross-section needs 30 names; with a small test universe, settle for half of it
     models.MIN_CROSS_SECTION = min(30, max(10, len(universe) // 2))
     log.info("panel: %d rows × %d features", len(panel), len(feature_names))
-    mpanel, mfeatures = (markets.build_market_panel({s: prices[s] for s in msyms}, ctx, mclass, partial_m)
+    mpanel, mfeatures = (markets.build_market_panel({s: prices[s] for s in msyms}, ctx_base, mclass, partial_m)
                          if msyms else (None, []))
     if mpanel is not None:
         log.info("markets panel: %d rows × %d features", len(mpanel), len(mfeatures))
@@ -653,6 +664,8 @@ def main():
     }
     dump(summary, os.path.join(args.out, "summary.json"))
     dump(backtest, os.path.join(args.out, "backtest.json"))
+    if alt_store is not None:
+        altdata.dump_store(alt_store, args.out)
     with gzip.open(os.path.join(args.out, "ledger.json.gz"), "wt", encoding="utf-8") as fh:
         json.dump(clean({"entries": ledger}), fh, separators=(",", ":"))
     log.info("wrote %d tickers to %s in %.0fs", len(summary_tickers), args.out, time.time() - t_start)

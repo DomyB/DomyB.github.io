@@ -28,6 +28,7 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import features  # noqa: E402
+import altdata  # noqa: E402
 import models  # noqa: E402
 from datafeed import CONTEXT_SYMBOLS, download_prices  # noqa: E402
 import universe  # noqa: E402
@@ -61,6 +62,14 @@ VARIANTS: dict[str, dict] = {
     "ref": {"beta_shrink": 0.5, "feature_flags": {"membership"},
             "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
     # The same model trained on the whole S&P 500 (judged on the tracked symbols only)
+    "ref_fund": {"beta_shrink": 0.5, "feature_flags": {"membership", "fund"},
+                 "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
+    "ref_earn": {"beta_shrink": 0.5, "feature_flags": {"membership", "earn"},
+                 "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
+    "ref_ctx2": {"beta_shrink": 0.5, "feature_flags": {"membership", "ctx2"},
+                 "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
+    "ref_alt": {"beta_shrink": 0.5, "feature_flags": {"membership", "fund", "earn", "ctx2"},
+                "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
     "ref500": {"beta_shrink": 0.5, "feature_flags": {"membership"}, "broad": True,
                "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
     "candA": {"beta_shrink": 0.5, "feature_flags": {"membership", "resid", "momshape"},
@@ -93,14 +102,14 @@ def load_prices(years: int, broad: bool = False) -> dict[str, pd.DataFrame]:
     path = os.path.join(CACHE, f"prices_{years}y{'_broad' if broad else ''}.pkl")
     if os.path.exists(path):
         prices = pickle.load(open(path, "rb"))
-        missing = [e for e in set(SECTOR_ETFS.values()) if e not in prices]
-        if missing:  # a cache from before the sector ETFs were part of the download
+        missing = [e for e in set(SECTOR_ETFS.values()) | set(altdata.CTX2_YAHOO.values()) if e not in prices]
+        if missing:  # a cache from before these series were part of the download
             prices.update(download_prices(missing, years=years))
             pickle.dump(prices, open(path, "wb"))
         return prices
     tracked = tracked_symbols()
     training = [s for s in universe.training_symbols(broad) if s not in tracked]
-    extra = sorted(set(SECTOR_ETFS.values()))
+    extra = sorted(set(SECTOR_ETFS.values()) | set(altdata.CTX2_YAHOO.values()))
     prices = download_prices(tracked + training + list(CONTEXT_SYMBOLS.values()) + extra, years=years)
     pickle.dump(prices, open(path, "wb"))
     return prices
@@ -108,6 +117,22 @@ def load_prices(years: int, broad: bool = False) -> dict[str, pd.DataFrame]:
 
 NOT_UNIVERSE = set(CONTEXT_SYMBOLS.values()) - {"SPY"}
 NOT_UNIVERSE |= set(SECTOR_ETFS.values()) - {"SPY"}
+NOT_UNIVERSE |= set(altdata.CTX2_YAHOO.values())
+
+
+def alt_frames(symbols: dict, flags: frozenset) -> dict[str, pd.DataFrame]:
+    """Per-symbol point-in-time frames for the fund and earn packs (cached on disk by altdata)."""
+    out = {}
+    if "fund" in flags:
+        tables = altdata.fundamentals_tables(list(symbols))
+        for sym, df in symbols.items():
+            if sym in tables:
+                out[sym] = altdata.fundamental_daily(tables[sym], df, altdata.split_factors(sym))
+    if "earn" in flags:
+        for sym, df in symbols.items():
+            e = altdata.earnings_daily(altdata.earnings_events(sym), df)
+            out[sym] = out[sym].join(e, how="outer") if sym in out else e
+    return out
 
 
 def load_membership() -> dict:
@@ -132,11 +157,13 @@ def build_panel(prices: dict, years: int, flags: frozenset, beta_shrink: float =
     features.BETA_SHRINK = beta_shrink
     features.MEMBERSHIP = load_membership() if "membership" in flags else {}
     try:
-        ctx = features.context_features(prices["SPY"], prices.get("^VIX"), prices.get("^TNX"), prices)
+        ctx_extra = altdata.context_extra(prices) if "ctx2" in flags else None
+        ctx = features.context_features(prices["SPY"], prices.get("^VIX"), prices.get("^TNX"), ctx_extra)
         wanted = set(tracked_symbols()) | set(universe.training_symbols(broad))
         symbols = {s: df for s, df in prices.items() if s in wanted and s not in NOT_UNIVERSE and not s.startswith("^")}
         sector_prices = {name: prices[etf] for name, etf in SECTOR_ETFS.items() if etf in prices}
-        panel, feats = features.build_panel(symbols, ctx, sectors=SECTOR, sector_prices=sector_prices)
+        extra = alt_frames(symbols, flags) if flags & {"fund", "earn"} else None
+        panel, feats = features.build_panel(symbols, ctx, sectors=SECTOR, sector_prices=sector_prices, extra=extra)
     finally:
         features.FEATURE_FLAGS, features.BETA_SHRINK, features.MEMBERSHIP = old
         restore(saved)

@@ -202,6 +202,10 @@ def context_features(market: pd.DataFrame, vix: pd.DataFrame | None, rates: pd.D
         tc = rates["close"].reindex(x.index).ffill()
         x["tnx"] = tc
         x["tnx_chg21"] = tc - tc.shift(21)
+    if "ctx2" in FEATURE_FLAGS and extra:
+        # VIX term structure, SKEW, the dollar, credit spreads and the curve (altdata.py)
+        import altdata
+        x = x.join(altdata.context_extra_features(x.index, extra, vix["close"] if vix is not None else None), how="left")
     x["_mkt_r"] = r  # helper for betas, dropped later
     return x
 
@@ -213,14 +217,17 @@ EARLY_CLOSE_SUFFIXES = (".MI", ".PA", ".DE", ".AS", ".MC", ".SW", ".L", ".T", ".
 
 def build_panel(prices: dict[str, pd.DataFrame], context: pd.DataFrame,
                 partial: set[str] | None = None, sectors: dict[str, str] | None = None,
-                sector_prices: dict[str, pd.DataFrame] | None = None) -> tuple[pd.DataFrame, list[str]]:
+                sector_prices: dict[str, pd.DataFrame] | None = None,
+                extra: dict[str, pd.DataFrame] | None = None) -> tuple[pd.DataFrame, list[str]]:
     """One row per (symbol, date) with every feature and target.
 
     `partial` names the symbols whose last bar is today's unfinished session:
     their last row is kept for forecasting, but no training target may use its
     (not yet final) close. `sectors` maps symbols to sector names and
     `sector_prices` sector names to a price frame (an ETF), for the sector
-    pack. Returns the panel and the feature column names.
+    pack. `extra` maps a symbol to a frame of dated, already point-in-time
+    features (the fund and earn packs from altdata.py), joined on the stock's own
+    calendar. Returns the panel and the feature column names.
     """
     frames = []
     ctx = context.copy()
@@ -297,6 +304,8 @@ def build_panel(prices: dict[str, pd.DataFrame], context: pd.DataFrame,
             joined[f"z_{hzn}"] = (fwd / sigma).clip(-TARGET_CLIP, TARGET_CLIP)
             if sym in partial:
                 joined.iloc[-(hzn + 1):, joined.columns.get_indexer([f"y_{hzn}", f"z_{hzn}"])] = np.nan
+        if extra and sym in extra and len(extra[sym].columns):
+            joined = joined.join(extra[sym].reindex(joined.index, method="ffill"), how="left")
         if "membership" in FEATURE_FLAGS and sym in MEMBERSHIP:
             # Before a stock joined the index nobody would have had it in this
             # universe: drop those rows so they never shape the cross-section
@@ -370,6 +379,7 @@ RANKED = ("ret1", "ret5", "ret10", "ret21", "ret63", "mom12_1", "vol21", "vol_ra
           "dvol63", "beta63", "dollar_vol", "max_r21", "min_r21", "macd_hist", "slope63")
 # Ranks added with each optional pack, and the extra ranks a rank-on-rank ridge can use
 RANKED_OPTIONAL = {"resid": ("resrev21", "resmom12_1", "ivol21"), "momshape": ("fip", "mom12_7"),
+                   "fund": ("ey", "bm", "cfy", "roa", "ag", "fmom", "accr"), "earn": ("sue_last", "ear_ret"),
                    "overnight": ("on21",), "seasonality": ("seas63",), "liquidity": ("dvol_abn", "amihud21")}
 RANKED_EXTRA = ("ret126", "ret252", "streak", "vol10", "vol63", "atr_pct", "sma20_gap", "sma50_200", "slope20", "macd",
                 "macd_hist_chg", "stoch_k", "bb_width", "days_since_high", "vol_rel5_63", "obv_slope", "intraday", "gap",
