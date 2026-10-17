@@ -70,10 +70,13 @@ def session_for(symbol: str, cls: str) -> tuple[str, int]:
 
 
 def is_partial(symbol: str, cls: str, last_bar: pd.Timestamp, now_utc: datetime) -> bool:
-    """Is the instrument's last daily bar still being traded?"""
+    """Is the instrument's last daily bar still being traded? Call it on the
+    normalised frames (see normalise_prices): a currency pair's last bar is Yahoo's
+    live quote relabelled to yesterday, so it counts as live for the whole UTC day."""
     tz, close_min = session_for(symbol, cls)
     local = now_utc.astimezone(ZoneInfo(tz))
-    if last_bar.date() != local.date():
+    bar_date = (last_bar + pd.Timedelta(days=1)).date() if cls == "currency" else last_bar.date()
+    if bar_date != local.date():
         return False
     return local.hour * 60 + local.minute < close_min + 20
 

@@ -245,12 +245,19 @@ def update_ledger(entries: list[dict], forecasts: pd.DataFrame, prices: dict[str
     entries = list(by_id.values())
 
     # Grade entries whose horizon has passed
+    orphans = set()
     for e in entries:
         if e.get("resolved") or e["symbol"] not in prices:
             continue
         df = prices[e["symbol"]]
         pos = df.index.get_indexer([pd.Timestamp(e["date"])])[0]
         if pos < 0:
+            # A record on a bar that no longer exists can never be graded: a
+            # provisional one, or one dated after the frame's last bar (an
+            # instrument's calendar was corrected). Forget it rather than count
+            # it as pending forever; a day the source merely skipped may come back.
+            if e.get("partial") or pd.Timestamp(e["date"]) > df.index[-1]:
+                orphans.add(e["id"])
             continue
         due = pos + e["h"]
         if due >= len(df) or (e["symbol"] in partial and due == len(df) - 1):
@@ -261,6 +268,10 @@ def update_ledger(entries: list[dict], forecasts: pd.DataFrame, prices: dict[str
             "hit": bool((e["ret"] or 0) >= 0) == bool(real >= 0),
             "inBand": bool(e["p10"] is not None and e["p90"] is not None and e["p10"] <= real <= e["p90"]),
         })
+
+    if orphans:
+        log.info("dropping %d provisional ledger entries whose bar no longer exists", len(orphans))
+        entries = [e for e in entries if e["id"] not in orphans]
 
     # Relative outcome: against the average of the tracked stocks forecast the same day
     groups: dict[tuple, list] = {}
