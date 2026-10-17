@@ -330,7 +330,9 @@ def main():
     log.info("panel: %d rows × %d features", len(panel), len(feature_names))
 
     # 3. Backtest (reused when nothing new has closed since the previous one)
-    membership_sig = hashlib.sha1(repr(sorted((k, str(v.date())) for k, v in features.MEMBERSHIP.items())).encode()).hexdigest()[:8]
+    # Only the entry dates of symbols in this universe matter: a membership refresh
+    # that adds other symbols must not throw away a perfectly good backtest
+    membership_sig = hashlib.sha1(repr(sorted((k, str(v.date())) for k, v in features.MEMBERSHIP.items() if k in universe)).encode()).hexdigest()[:8]
     knobs = repr((models.TARGET, models.SMOOTH_DAYS, models.BLEND, models.RIDGE_CS, models.RIDGE_ALPHA, models.GBM_PARAMS,
                   models.N_SEEDS, models.SEED_OFFSET, models.TRAIN_STRIDE, models.TRAIN_WINDOW_DAYS, models.RECENCY_HALFLIFE,
                   models.ENSEMBLE_WEIGHTS, models.DRIFT_SHRINK, models.MIN_CROSS_SECTION, features.BETA_SHRINK,

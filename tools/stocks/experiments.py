@@ -30,7 +30,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import features  # noqa: E402
 import models  # noqa: E402
 from datafeed import CONTEXT_SYMBOLS, download_prices  # noqa: E402
-from universe import SECTOR, SECTOR_ETFS, TRAINING_ONLY  # noqa: E402
+import universe  # noqa: E402
+from universe import SECTOR, SECTOR_ETFS  # noqa: E402
 
 log = logging.getLogger("stocks.experiments")
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -59,6 +60,9 @@ VARIANTS: dict[str, dict] = {
     # Final round: everything already accepted (reference), plus the feature blocks on top
     "ref": {"beta_shrink": 0.5, "feature_flags": {"membership"},
             "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
+    # The same model trained on the whole S&P 500 (judged on the tracked symbols only)
+    "ref500": {"beta_shrink": 0.5, "feature_flags": {"membership"}, "broad": True,
+               "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
     "candA": {"beta_shrink": 0.5, "feature_flags": {"membership", "resid", "momshape"},
               "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
     "candB": {"beta_shrink": 0.5, "feature_flags": {"membership", "resid", "momshape", "sector", "overnight", "seasonality", "liquidity"},
@@ -79,9 +83,14 @@ def register(name: str, **overrides):
     VARIANTS[name] = overrides
 
 
-def load_prices(years: int) -> dict[str, pd.DataFrame]:
+def tracked_symbols() -> list[str]:
+    with open(os.path.join(ROOT, "_data", "stocks.yml"), encoding="utf-8") as fh:
+        return [str(e["symbol"]).upper() for e in yaml.safe_load(fh)]
+
+
+def load_prices(years: int, broad: bool = False) -> dict[str, pd.DataFrame]:
     os.makedirs(CACHE, exist_ok=True)
-    path = os.path.join(CACHE, f"prices_{years}y.pkl")
+    path = os.path.join(CACHE, f"prices_{years}y{'_broad' if broad else ''}.pkl")
     if os.path.exists(path):
         prices = pickle.load(open(path, "rb"))
         missing = [e for e in set(SECTOR_ETFS.values()) if e not in prices]
@@ -89,10 +98,10 @@ def load_prices(years: int) -> dict[str, pd.DataFrame]:
             prices.update(download_prices(missing, years=years))
             pickle.dump(prices, open(path, "wb"))
         return prices
-    with open(os.path.join(ROOT, "_data", "stocks.yml"), encoding="utf-8") as fh:
-        tracked = [str(e["symbol"]).upper() for e in yaml.safe_load(fh)]
+    tracked = tracked_symbols()
+    training = [s for s in universe.training_symbols(broad) if s not in tracked]
     extra = sorted(set(SECTOR_ETFS.values()))
-    prices = download_prices(tracked + [s for s in TRAINING_ONLY if s not in tracked] + list(CONTEXT_SYMBOLS.values()) + extra, years=years)
+    prices = download_prices(tracked + training + list(CONTEXT_SYMBOLS.values()) + extra, years=years)
     pickle.dump(prices, open(path, "wb"))
     return prices
 
@@ -110,10 +119,10 @@ def load_membership() -> dict:
 
 
 def build_panel(prices: dict, years: int, flags: frozenset, beta_shrink: float = 0.0,
-                feature_overrides: dict | None = None) -> tuple[pd.DataFrame, list[str]]:
+                feature_overrides: dict | None = None, broad: bool = False) -> tuple[pd.DataFrame, list[str]]:
     feature_overrides = feature_overrides or {}
     key = hashlib.sha1((f"{years}|" + "|".join(sorted(flags)) + f"|{beta_shrink}|" + features.FEATURE_VERSION
-                        + "|" + repr(sorted(feature_overrides.items()))).encode()).hexdigest()[:10]
+                        + "|" + repr(sorted(feature_overrides.items())) + ("|broad" if broad else "")).encode()).hexdigest()[:10]
     path = os.path.join(CACHE, f"panel_{key}.pkl")
     if os.path.exists(path):
         return pickle.load(open(path, "rb"))
@@ -124,9 +133,10 @@ def build_panel(prices: dict, years: int, flags: frozenset, beta_shrink: float =
     features.MEMBERSHIP = load_membership() if "membership" in flags else {}
     try:
         ctx = features.context_features(prices["SPY"], prices.get("^VIX"), prices.get("^TNX"), prices)
-        universe = {s: df for s, df in prices.items() if s not in NOT_UNIVERSE and not s.startswith("^")}
+        wanted = set(tracked_symbols()) | set(universe.training_symbols(broad))
+        symbols = {s: df for s, df in prices.items() if s in wanted and s not in NOT_UNIVERSE and not s.startswith("^")}
         sector_prices = {name: prices[etf] for name, etf in SECTOR_ETFS.items() if etf in prices}
-        panel, feats = features.build_panel(universe, ctx, sectors=SECTOR, sector_prices=sector_prices)
+        panel, feats = features.build_panel(symbols, ctx, sectors=SECTOR, sector_prices=sector_prices)
     finally:
         features.FEATURE_FLAGS, features.BETA_SHRINK, features.MEMBERSHIP = old
         restore(saved)
@@ -138,7 +148,7 @@ def apply(overrides: dict) -> dict:
     """Set module attributes from overrides; returns what to restore."""
     saved = {}
     for key, value in overrides.items():
-        if key in ("feature_flags", "beta_shrink"):
+        if key in ("feature_flags", "beta_shrink", "broad"):
             continue
         mod_name, attr = key.split(".", 1)
         mod = {"models": models, "features": features}[mod_name]
@@ -233,6 +243,15 @@ def _save(name: str, oos: pd.DataFrame, report: dict):
     keep = ["date", "symbol", "h", "pred", "pred_gbm", "pred_ridge", "drift", "z_true", "zr_true", "y_true", "sigma"]
     oos[[c for c in keep if c in oos.columns]].to_pickle(os.path.join(CACHE, "preds", f"{name}.pkl"))
     models.daily_series(oos).to_pickle(os.path.join(CACHE, "daily", f"{name}.pkl"))
+    # The same skill measured among the tracked symbols only: comparable across universes of different size
+    os.makedirs(os.path.join(CACHE, "daily_tracked"), exist_ok=True)
+    tracked = oos[oos["symbol"].isin(tracked_symbols())]
+    old_min = models.MIN_CROSS_SECTION
+    models.MIN_CROSS_SECTION = 20
+    try:
+        models.daily_series(tracked).to_pickle(os.path.join(CACHE, "daily_tracked", f"{name}.pkl"))
+    finally:
+        models.MIN_CROSS_SECTION = old_min
 
 
 def split_report(oos: pd.DataFrame) -> dict:
@@ -250,10 +269,11 @@ def split_report(oos: pd.DataFrame) -> dict:
 def run(name: str, years: int, step: int) -> dict:
     overrides = VARIANTS[name]
     flags = frozenset(overrides.get("feature_flags", ()))
-    prices = load_prices(years)
+    broad = bool(overrides.get("broad", False))
+    prices = load_prices(years, broad)
     panel, feats = build_panel(prices, years, flags, overrides.get("beta_shrink", 0.0),
-                               {k: v for k, v in overrides.items() if k.startswith("features.")})
-    saved = apply({k: v for k, v in overrides.items() if not k.startswith("features.")})
+                               {k: v for k, v in overrides.items() if k.startswith("features.")}, broad)
+    saved = apply({k: v for k, v in overrides.items() if not k.startswith("features.") and k not in ("broad",)})
     t0 = time.time()
     try:
         oos = models.walk_forward(panel, feats, step=step)
@@ -266,17 +286,19 @@ def run(name: str, years: int, step: int) -> dict:
     return report
 
 
-def paired(names: list[str], base: str = "base", metric: str = "ic") -> pd.DataFrame:
+def paired(names: list[str], base: str = "base", metric: str = "ic", scope: str = "all") -> pd.DataFrame:
     """Paired comparison of a daily metric against the baseline, per horizon and
-    period (and pooled), with a Newey-West t-stat and the seed-noise floor."""
+    period (and pooled), with a Newey-West t-stat and the seed-noise floor.
+    scope="tracked" compares the skill among the tracked symbols only."""
     rows = []
-    bpath = os.path.join(CACHE, "daily", f"{base}.pkl")
+    folder = "daily" if scope == "all" else "daily_tracked"
+    bpath = os.path.join(CACHE, folder, f"{base}.pkl")
     if not os.path.exists(bpath):
         return pd.DataFrame()
     b = pd.read_pickle(bpath)[["date", "h", metric]].rename(columns={metric: "m_base"})
-    floor = noise_floor(base, metric)
+    floor = noise_floor(base, metric) if scope == "all" else {}
     for name in names:
-        path = os.path.join(CACHE, "daily", f"{name}.pkl")
+        path = os.path.join(CACHE, folder, f"{name}.pkl")
         if name == base or not os.path.exists(path):
             continue
         v = pd.read_pickle(path)[["date", "h", metric]].merge(b, on=["date", "h"])

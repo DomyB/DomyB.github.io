@@ -69,3 +69,34 @@ SECTOR_ETFS = {
     "Consumer Discretionary": "XLY", "Consumer Staples": "XLP", "Industrials": "XLI", "Energy": "XLE",
     "Materials": "XLB", "Utilities": "XLU", "Real Estate": "VNQ", "ETF": "SPY",
 }
+
+
+# The rest of today's S&P 500 (from Wikipedia), used only to train the model when
+# BROAD_UNIVERSE is on: a ranking model learns more from 500 names than from 220.
+SP500_EXTRA = {
+    "Communication": ["APP", "ECHO", "FOX", "FOXA", "GOOG", "LYV", "NWS", "NWSA", "RDDT", "SKYD", "TKO"],
+    "Consumer Discretionary": ["ABNB", "APTV", "BBY", "BKNG", "CCL", "CVNA", "DASH", "DECK", "DHI", "DPZ", "DRI", "EXPE", "GPC", "GRMN", "HAS", "LEN", "LULU", "LVS", "MGM", "NCLH", "NVR", "PHM", "RCL", "RL", "TPR", "TSCO", "ULTA", "WSM", "WYNN"],
+    "Consumer Staples": ["ADM", "BF-B", "BG", "CASY", "CHD", "CLX", "HRL", "KDP", "KVUE", "MKC", "MNST", "SJM", "STZ", "TSN", "VYLR"],
+    "Energy": ["APA", "BKR", "EQT", "EXE", "FANG", "OKE", "TPL", "TRGP"],
+    "Financials": ["ACGL", "AIZ", "AJG", "AMP", "APO", "ARES", "BEN", "BNY", "BRO", "BX", "CBOE", "CFG", "CINF", "COIN", "CPAY", "EG", "ERIE", "FDS", "FIS", "FISV", "FITB", "GL", "GPN", "HBAN", "HIG", "HOOD", "IBKR", "IVZ", "JKHY", "KEY", "KKR", "L", "MRSH", "MSCI", "MTB", "NDAQ", "NTRS", "PFG", "RF", "RJF", "STT", "SYF", "TROW", "WRB", "WTW", "XYZ"],
+    "Health": ["A", "ALGN", "BAX", "BIIB", "CAH", "COO", "COR", "CRL", "DGX", "DVA", "DXCM", "EW", "GEHC", "HSIC", "IDXX", "ILMN", "INCY", "IQV", "LH", "MRNA", "MTD", "PODD", "RMD", "RVTY", "SOLV", "STE", "TECH", "UHS", "VEEV", "VTRS", "WAT", "WST", "ZBH"],
+    "Industrials": ["ALLE", "AME", "AOS", "AXON", "BE", "BR", "CHRW", "CMI", "CPRT", "DD", "DOV", "EFX", "EME", "EXPD", "FDXF", "FERG", "FIX", "FTV", "GEV", "GNRC", "HII", "HONA", "HUBB", "HWM", "IEX", "IR", "J", "JBHT", "LDOS", "LHX", "LII", "MAS", "NDSN", "ODFL", "OTIS", "PAYX", "PNR", "PWR", "ROK", "ROL", "SNA", "SWK", "TT", "TXT", "URI", "VLTO", "VRSK", "VRT", "WAB", "XYL"],
+    "Materials": ["ALB", "AMCR", "AVY", "BALL", "CF", "CRH", "IFF", "IP", "LYB", "MLM", "MOS", "PKG", "PPG", "STLD", "SW", "VMC"],
+    "Real Estate": ["ARE", "BXP", "CBRE", "CPT", "CSGP", "DLR", "DOC", "ESS", "EXR", "FRT", "HST", "INVH", "IRM", "KIM", "MAA", "REG", "SBAC", "UDR", "VICI", "VMRK", "VTR", "WELL", "WY"],
+    "Technology": ["ADSK", "AKAM", "CDW", "CIEN", "COHR", "CRWD", "DDOG", "FFIV", "FICO", "FLEX", "FSLR", "GDDY", "GEN", "HPE", "IT", "JBL", "KEYS", "LITE", "MCHP", "MPWR", "MSI", "NTAP", "NXPI", "ON", "P", "PTC", "Q", "ROP", "SMCI", "SNDK", "STX", "SWKS", "TDY", "TEL", "TER", "TRMB", "TWLO", "TYL", "VRSN", "WDAY", "WDC", "ZBRA"],
+    "Utilities": ["AEE", "AES", "ATO", "AWK", "CEG", "CMS", "CNP", "DTE", "ED", "EIX", "ES", "ETR", "EVRG", "FE", "LNT", "NI", "NRG", "PCG", "PEG", "PNW", "PPL", "VST", "WEC"],
+}
+
+BROAD_UNIVERSE = False  # the experiment harness and pipeline switch this on when the broad universe is adopted
+
+
+def training_symbols(broad: bool | None = None) -> list:
+    """Symbols the model learns from besides the tracked list."""
+    broad = BROAD_UNIVERSE if broad is None else broad
+    out = list(TRAINING_ONLY)
+    if broad:
+        for sec, syms in SP500_EXTRA.items():
+            out.extend(s for s in syms if s not in out)
+            for s in syms:
+                SECTOR.setdefault(s, sec)
+    return out

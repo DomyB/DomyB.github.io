@@ -3,7 +3,8 @@
    branch, or the copy in assets/data/stocks/ as a fallback), and draws the
    overview table, each stock's detail page and the methodology page. Charts
    are plain canvas, in the blog's colors, and follow the theme switch.
-   Optional live prices come from Finnhub with a key the reader provides. */
+   Real-time prices stream from Yahoo Finance's public WebSocket while the
+   page is open; no key is needed and nothing is sent anywhere else. */
 (function () {
   "use strict";
 
@@ -26,8 +27,9 @@
     tickers: {}, loading: {},
     horizon: 21, sort: { key: "overall", dir: -1 }, query: "", sector: "",
     range: 252, overlays: { sma: true, bb: false, cone: true },
-    route: { view: "overview" }
+    route: { view: "overview" }, prevRoute: null
   };
+  var DETAIL_TABS = { overview: "Overview", signals: "Chart signals", fundamentals: "Fundamentals", record: "Track record", about: "About" };
   var charts = [];      // { canvas, draw, ro } for everything that must redraw on resize / theme change
   var refreshTimer = null;
 
@@ -141,7 +143,7 @@
 
   function stance(s) {
     var label = s ? s.charAt(0).toUpperCase() + s.slice(1) : "–";
-    return el("span", { class: "chip chip--" + (s || "neutral"), text: label });
+    return el("span", { class: "chip chip--" + (s || "neutral").replace(/\s+/g, "-"), text: label });
   }
 
   function meter(value, cls) {
@@ -326,11 +328,15 @@
     var h = (location.hash || "#/").replace(/^#\/?/, "");
     if (!h) return { view: "overview" };
     if (h === "method") return { view: "method" };
-    return { view: "detail", symbol: decodeURIComponent(h).toUpperCase() };
+    var parts = h.split("/");
+    var tab = (parts[1] || "overview").toLowerCase();
+    if (!DETAIL_TABS[tab]) tab = "overview";
+    return { view: "detail", symbol: decodeURIComponent(parts[0]).toUpperCase(), tab: tab };
   }
 
   function render() {
     dropCharts();
+    state.prevRoute = state.route;
     state.route = parseHash();
     tabs.forEach(function (t) {
       var current = t.getAttribute("data-view") === state.route.view;
@@ -342,7 +348,9 @@
     if (state.route.view === "method") renderMethod();
     else if (state.route.view === "detail") renderDetail(state.route.symbol);
     else renderOverview();
-    if (state.route.view !== "overview") window.scrollTo({ top: app.offsetTop - 60, behavior: "auto" });
+    var prev = state.prevRoute || {};
+    var sameDetail = state.route.view === "detail" && prev.view === "detail" && prev.symbol === state.route.symbol;
+    if (state.route.view !== "overview" && !sameDetail) window.scrollTo({ top: app.offsetTop - 60, behavior: "auto" });
   }
 
   function renderStatus() {
@@ -351,8 +359,7 @@
     var s = state.summary;
     var open = s.session && (s.session.us === "open" || s.session.milan === "open");
     statusEl.appendChild(document.createTextNode("Data from " + timeAgo(s.generatedAt)));
-    if (live.key && live.ok) statusEl.appendChild(el("span", { class: "chip chip--live", text: "Live" }));
-    else if (open) statusEl.appendChild(el("span", { class: "chip", text: "Market open" }));
+    if (open) statusEl.appendChild(el("span", { class: "chip", text: "Market open" }));
     statusEl.title = "Generated " + new Date(s.generatedAt).toLocaleString();
   }
 
@@ -360,7 +367,7 @@
 
   var SORTS = {
     name: function (t) { return t.name.toLowerCase(); },
-    price: function (t) { return t.changePct; },
+    price: function (t) { return liveChange(t); },
     forecast: function (t) { var f = t.forecasts[state.horizon]; return f ? f.ret : -Infinity; },
     pup: function (t) { var f = t.forecasts[state.horizon]; return f ? f.pUp : -Infinity; },
     fv: function (t) { return t.fairValue ? t.fairValue.marginOfSafety : -Infinity; },
@@ -369,26 +376,92 @@
     fundamental: function (t) { return t.scores.fundamental == null ? -Infinity : t.scores.fundamental; }
   };
 
+  function liveChange(t) {
+    var q = stream.quotes[t.symbol];
+    return q && q.changePercent != null ? q.changePercent / 100 : t.changePct;
+  }
+
+  function livePrice(t) {
+    var q = stream.quotes[t.symbol];
+    return q && q.price > 0 ? q.price : t.price;
+  }
+
+  function glanceLink(t) {
+    return el("a", { href: "#/" + encodeURIComponent(t.symbol), text: t.name, onclick: function (e) { e.preventDefault(); go(t.symbol); } });
+  }
+
+  function glanceCard(title, items, emptyText) {
+    var card = el("div", { class: "card", dataset: { glance: title } }, el("p", { class: "card__title", text: title }));
+    if (items.length) card.appendChild(el("ul", { class: "glance__list" }, items));
+    else card.appendChild(el("p", { class: "glance__empty", text: emptyText }));
+    return card;
+  }
+
+  function moversCard(s) {
+    var rows = s.tickers.filter(function (t) { return liveChange(t) != null; }).sort(function (a, b) { return Math.abs(liveChange(b)) - Math.abs(liveChange(a)); }).slice(0, 5);
+    var anyLive = rows.some(function (t) { return stream.quotes[t.symbol]; });
+    return glanceCard(anyLive ? "Biggest moves right now" : "Biggest moves, last session", rows.map(function (t) {
+      return el("li", {}, glanceLink(t), delta(liveChange(t), 1), el("small", { text: t.symbol + " · " + money(livePrice(t), t.currency) }));
+    }), "No prices yet.");
+  }
+
+  function forecastsCard(s) {
+    var h = state.horizon;
+    var rows = s.tickers.filter(function (t) { return t.forecasts[h]; }).sort(function (a, b) { return b.forecasts[h].relRet - a.forecasts[h].relRet; }).slice(0, 5);
+    return glanceCard("Model's favourites, " + HORIZON_NAMES[h], rows.map(function (t) {
+      var f = t.forecasts[h];
+      return el("li", {}, glanceLink(t), delta(f.ret, 1), el("small", { text: Math.round(f.pUp * 100) + "% chance of a gain · " + pct(f.relRet, 1) + " vs the others" }));
+    }), "No forecasts yet.");
+  }
+
+  function valueCard(s) {
+    var rows = s.tickers.filter(function (t) { return t.fairValue && t.fairValue.marginOfSafety > 0.005; }).sort(function (a, b) { return b.fairValue.marginOfSafety - a.fairValue.marginOfSafety; }).slice(0, 5);
+    return glanceCard("Furthest below fair value", rows.map(function (t) {
+      return el("li", {}, glanceLink(t), delta(t.fairValue.marginOfSafety, 0), el("small", { text: "fair value " + money(t.fairValue.value, t.currency) + " vs " + money(livePrice(t), t.currency) }));
+    }), "Nothing trades below its estimated fair value right now.");
+  }
+
   function renderOverview() {
+    document.title = "Stocks";
     var s = state.summary;
     view.appendChild(marketStrip(s));
 
+    var glance = el("div", { class: "glance" });
+    view.appendChild(glance);
+    function drawGlance() {
+      clear(glance);
+      glance.appendChild(moversCard(s));
+      glance.appendChild(forecastsCard(s));
+      glance.appendChild(valueCard(s));
+    }
+    drawGlance();
+    glanceRedraw = drawGlance;
+
     var sectors = {};
-    s.tickers.forEach(function (t) { if (t.sector) sectors[t.sector] = true; });
+    s.tickers.forEach(function (t) { if (t.sector && t.type !== "ETF") sectors[t.sector] = true; });
     var search = el("input", { type: "search", placeholder: "Search by name or symbol", value: state.query, "aria-label": "Search stocks",
       oninput: function (e) { state.query = e.target.value; drawTable(); } });
-    var sectorSel = el("select", { "aria-label": "Sector", onchange: function (e) { state.sector = e.target.value; drawTable(); } },
-      el("option", { value: "", text: "All sectors" }),
-      Object.keys(sectors).sort().map(function (k) { return el("option", { value: k, text: k, selected: state.sector === k }); }),
-      el("option", { value: "ETF", text: "Funds", selected: state.sector === "ETF" }));
     var seg = el("div", { class: "seg", role: "group", "aria-label": "Forecast horizon" },
       [1, 5, 21, 63].map(function (h) {
         return el("button", { type: "button", "aria-pressed": state.horizon === h ? "true" : "false", text: HORIZON_SHORT[h],
-          onclick: function () { state.horizon = h; drawTable(); seg.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", b.textContent === HORIZON_SHORT[h] ? "true" : "false"); }); } });
+          onclick: function () { state.horizon = h; drawTable(); drawGlance(); seg.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", b.textContent === HORIZON_SHORT[h] ? "true" : "false"); }); } });
       }));
     var count = el("span", { class: "stocks-filters__count" });
-    view.appendChild(el("div", { class: "stocks-filters" }, search, sectorSel,
-      el("label", {}, "Forecast horizon ", seg), count));
+    view.appendChild(el("div", { class: "stocks-filters" }, search, el("label", {}, "Forecast horizon ", seg), count));
+
+    var chips = el("ul", { class: "chips", role: "group", "aria-label": "Sector" });
+    function chip(value, label) {
+      return el("li", {}, el("button", { type: "button", text: label, "aria-pressed": state.sector === value ? "true" : "false", onclick: function () {
+        state.sector = value;
+        chips.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", "false"); });
+        this.setAttribute("aria-pressed", "true");
+        drawTable();
+      } }));
+    }
+    chips.appendChild(chip("", "All"));
+    Object.keys(sectors).sort().forEach(function (k) { chips.appendChild(chip(k, k)); });
+    chips.appendChild(chip("ETF", "Funds"));
+    view.appendChild(chips);
 
     var wrap = el("div", { class: "stocks-table-wrap" });
     view.appendChild(wrap);
@@ -427,8 +500,8 @@
       var table = el("table", { class: "stocks-table" },
         el("thead", {}, el("tr", {},
           th("Company", "name"), th("Price", "price"), th("60 days", null, "hide-xs"),
-          th("Forecast " + HORIZON_SHORT[state.horizon], "forecast"), th("P(up)", "pup", "hide-sm"),
-          th("Fair value", "fv", "hide-sm"), th("Score", "overall", "hide-xs"), th("Outlook", null, "hide-xs"))),
+          th("Forecast, " + HORIZON_NAMES[state.horizon], "forecast"),
+          th("Fair value", "fv", "hide-sm"), th("Score", "overall", "hide-xs"))),
         el("tbody", {}, rows.map(tableRow)));
       wrap.appendChild(table);
       if (!rows.length) wrap.appendChild(el("p", { class: "record-empty", style: "padding:1.25rem", text: "Nothing matches." }));
@@ -446,7 +519,7 @@
       var spark = el("canvas", { class: "spark", role: "img", "aria-label": "Last 60 closes" });
       var fcCell = el("td", { class: "fc-cell" });
       if (f) {
-        fcCell.appendChild(el("div", { class: "fc-cell__main" }, delta(f.ret, 1), el("small", { text: pct(f.p10, 0) + " to " + pct(f.p90, 0) })));
+        fcCell.appendChild(el("div", { class: "fc-cell__main" }, delta(f.ret, 1), el("small", { text: Math.round(f.pUp * 100) + "% up · " + pct(f.p10, 0) + " to " + pct(f.p90, 0) })));
         fcCell.appendChild(bandBar(f, bandScale()));
       } else fcCell.textContent = "–";
       var priceCell = el("td", { class: "price", dataset: { price: t.symbol } });
@@ -458,12 +531,11 @@
         priceCell,
         el("td", { class: "hide-xs" }, spark),
         fcCell,
-        el("td", { class: "hide-sm tabular" }, f ? el("b", { text: Math.round(f.pUp * 100) + "%" }) : "–"),
         fvCell,
         el("td", { class: "score-cell hide-xs" },
           el("div", { class: "score-cell__row" }, el("b", { text: t.scores.overall == null ? "–" : Math.round(t.scores.overall) }), meter(t.scores.overall, scoreClass(t.scores.overall))),
-          el("small", { text: "T " + (t.scores.technical == null ? "–" : Math.round(t.scores.technical)) + " · F " + (t.scores.fundamental == null ? "–" : Math.round(t.scores.fundamental)) })),
-        el("td", { class: "hide-xs" }, t.scores.outlook ? stance(t.scores.outlook) : "–"));
+          el("small", {}, "Chart " + (t.scores.technical == null ? "–" : Math.round(t.scores.technical)) + " · Fundamentals " + (t.scores.fundamental == null ? "–" : Math.round(t.scores.fundamental))),
+          t.scores.outlook ? el("div", { class: "score-cell__outlook" }, stance(t.scores.outlook)) : null));
       row.addEventListener("click", function (e) { if (e.target.closest("a")) return; go(t.symbol); });
       sparkline(spark, t.spark, true);
       return row;
@@ -478,13 +550,25 @@
     drawTable();
   }
 
+  var glanceRedraw = null;
+
+  function sessionLabel(q) {
+    if (!q) return "";
+    return q.marketHours === 0 ? "pre-market" : q.marketHours === 2 ? "after hours" : q.marketHours === 3 ? "extended hours" : "";
+  }
+
+  function tickTime(q) {
+    return new Date(q.time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+
   function fillPriceCell(cell, t) {
     clear(cell);
-    var q = live.quotes[t.symbol];
-    var price = q ? q.c : t.price;
-    var change = q ? q.dp / 100 : t.changePct;
-    cell.appendChild(document.createTextNode(money(price, t.currency)));
+    var q = stream.quotes[t.symbol];
+    var price = livePrice(t);
+    var change = liveChange(t);
+    cell.appendChild(el("span", { class: "price-tick" + (q && q.flash ? " is-" + q.flash : ""), text: money(price, t.currency) }));
     cell.appendChild(el("small", {}, delta(change, 2, 0.00005)));
+    cell.title = q ? "Live from Yahoo Finance" + (sessionLabel(q) ? ", " + sessionLabel(q) : "") + ", " + tickTime(q) : "From the last data run";
   }
 
   function go(symbol) {
@@ -520,10 +604,15 @@
     view.appendChild(box);
     box.appendChild(el("a", { class: "detail__back", href: "#/", text: "← All stocks" }));
     box.appendChild(detailHead(t));
+    box.appendChild(verdictCard(t));
+    var tabsEl = detailTabs(t, null);
+    box.appendChild(tabsEl);
     var body = el("div", { class: "detail__body" }, el("div", { class: "stocks__loading" }, el("p", { class: "stocks__loading-title", text: "Loading " + t.symbol + "…" })));
     box.appendChild(body);
     loadTicker(symbol).then(function (d) {
       if (state.route.view !== "detail" || state.route.symbol !== symbol) return;
+      var fresh = detailTabs(t, d);
+      tabsEl.parentNode.replaceChild(fresh, tabsEl);
       clear(body);
       detailBody(body, t, d);
     }).catch(function (err) {
@@ -534,69 +623,154 @@
   }
 
   function detailHead(t) {
-    var q = live.quotes[t.symbol];
-    var price = q ? q.c : t.price, change = q ? q.d : t.change, changePct = q ? q.dp / 100 : t.changePct;
+    var q = stream.quotes[t.symbol];
+    var price = livePrice(t);
+    var change = q && q.change != null ? q.change : t.change;
+    var changePct = liveChange(t);
     var note = t.live ? "During today's session, as of the last data run" : "Close of " + dateLong(t.asOf);
-    if (q) note = "Live from Finnhub, " + new Date(q.t * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    if (q) note = "Live from Yahoo Finance" + (sessionLabel(q) ? ", " + sessionLabel(q) : "") + ", " + tickTime(q);
     var head = el("div", { class: "detail__head", dataset: { head: t.symbol } },
       el("div", {},
         el("h2", { class: "detail__title" }, t.name, el("small", { text: t.symbol })),
         el("p", { class: "detail__meta", text: [t.sector, t.industry, t.exchange].filter(Boolean).join(" · ") || (t.type === "ETF" ? "Exchange-traded fund" : "") })),
       el("div", { class: "detail__price" },
-        el("p", { class: "detail__price-value" }, money(price, t.currency), el("small", { text: t.currency })),
+        el("p", { class: "detail__price-value" }, el("span", { class: "price-tick" + (q && q.flash ? " is-" + q.flash : ""), text: money(price, t.currency) }), el("small", { text: t.currency })),
         el("p", { class: "detail__price-change" }, deltaMoney(change, t.currency), " ", delta(changePct, 2, 0.00005)),
         el("p", { class: "detail__price-note" }, note, q ? el("span", { class: "chip chip--live", text: "Live" }) : null)));
     return head;
   }
 
-  function detailBody(body, t, d) {
-    var st = d.stats || {};
-    // Summary tiles
-    var tiles = el("div", { class: "detail__summary" });
-    function tile(label, value, note) {
-      tiles.appendChild(el("div", { class: "stat" }, el("p", { class: "stat__label", text: label }), el("p", { class: "stat__value" }, value), note ? el("p", { class: "stat__note" }, note) : null));
+  function forecastRank(t, h) {
+    var list = state.summary.tickers.filter(function (x) { return x.forecasts[h]; });
+    if (!list.length || !t.forecasts[h]) return null;
+    var mine = t.forecasts[h];
+    var better = list.filter(function (x) { var f = x.forecasts[h]; return f.relRet > mine.relRet || (f.relRet === mine.relRet && f.conviction > mine.conviction); }).length;
+    return { rank: better + 1, n: list.length };
+  }
+
+  function scoreStance(v) {
+    return v == null ? "neutral" : v >= 62 ? "bullish" : v <= 38 ? "bearish" : "neutral";
+  }
+
+  function verdictCard(t) {
+    var sc = t.scores || {};
+    var out = sc.outlook || "neutral";
+    var word = out === "positive" ? "leans positive" : out === "negative" ? "leans negative" : "is mixed";
+    var lead = el("p", { class: "verdict-card__lead" }, "Overall score ", el("b", { text: sc.overall == null ? "–" : Math.round(sc.overall) }), " of 100: the evidence on " + t.name + " " + word + ".");
+    var cols = [];
+    var f = t.forecasts[21];
+    if (f) {
+      var rk = forecastRank(t, 21);
+      cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Model, next month" }),
+        el("p", {}, "Expects ", delta(f.ret, 1), " with a ", el("b", { text: Math.round(f.pUp * 100) + "%" }), " chance of a gain", rk ? [": ranked ", el("b", { text: rk.rank + " of " + rk.n }), " tracked stocks for the month ahead."] : "."),
+        stance(scoreStance(sc.model))));
     }
-    tile("Open", money(d.open, t.currency), "Day " + money(d.dayLow, t.currency) + " – " + money(d.dayHigh, t.currency));
-    tile("Volume", compact(d.volume), "Average " + compact(st.avgVolume20));
+    var st = t.stances || {};
+    var keys = ["trend", "momentum", "oscillators", "volume"].filter(function (k) { return st[k]; });
+    var chartText = keys.length ? keys.map(function (k) { return k + " " + st[k]; }).join(", ") + "." : "No readings yet.";
+    chartText = chartText.charAt(0).toUpperCase() + chartText.slice(1);
+    cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Chart" }), el("p", { text: chartText }), stance(scoreStance(sc.technical))));
+    if (t.type !== "ETF") {
+      var fv = t.fairValue, v = t.view12m;
+      var fundText = fv
+        ? el("p", {}, "Fair value ", el("b", { text: money(fv.value, t.currency) }), ", " + pct(Math.abs(fv.marginOfSafety), 0, false) + (fv.marginOfSafety >= 0 ? " above" : " below") + " the price", v ? [". Twelve-month view ", delta(v.expectedReturn12m, 0), " including the dividend."] : ".")
+        : el("p", { text: "Not enough data for a fair value." });
+      cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Fundamentals" }), fundText, stance(fv ? fv.label : "neutral")));
+    } else {
+      cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Fundamentals" }), el("p", { text: "A fund has no fundamentals of its own; its score is the model and the chart." })));
+    }
+    return el("div", { class: "verdict-card" }, lead, cols);
+  }
+
+  function detailTabs(t, d) {
+    var ul = el("ul", { class: "detail__tabs" });
+    Object.keys(DETAIL_TABS).forEach(function (k) {
+      if (k === "fundamentals" && t.type === "ETF") return;
+      var extra = null;
+      if (k === "record" && d && d.ledger) {
+        var n = d.ledger.resolved.length;
+        extra = el("small", { text: n ? n + " graded" : d.ledger.pending.length + " pending" });
+      }
+      ul.appendChild(el("li", {}, el("a", { href: "#/" + encodeURIComponent(t.symbol) + (k === "overview" ? "" : "/" + k), "aria-current": (state.route.tab || "overview") === k ? "page" : null, text: DETAIL_TABS[k] }, extra)));
+    });
+    return ul;
+  }
+
+  function detailBody(body, t, d) {
+    var tab = state.route.tab || "overview";
+    if (tab === "fundamentals" && t.type === "ETF") tab = "overview";
+    if (tab === "overview") {
+      body.appendChild(summaryTiles(t, d));
+      body.appendChild(priceChartCard(t, d));
+      body.appendChild(el("h2", { class: "section-title", text: "Forecasts" }));
+      body.appendChild(forecastGrid(t, d));
+      body.appendChild(el("h2", { class: "section-title", text: "Scores" }));
+      body.appendChild(scoreGrid(t, d));
+    } else if (tab === "signals") {
+      body.appendChild(el("h2", { class: "section-title", text: "What the chart says" }));
+      var parts = d.technical && d.technical.parts;
+      if (parts) {
+        body.appendChild(el("div", { class: "card", style: "margin-bottom:.75rem" },
+          el("p", { class: "card__title", text: "Chart score " + (t.scores.technical == null ? "–" : Math.round(t.scores.technical)) + " of 100" }),
+          partsList(parts, TECH_PARTS),
+          el("p", { class: "small muted", style: "margin:.6rem 0 0", text: "Trend 30%, momentum 30%, oscillators 15%, volume 15%, volatility 10%. The readings below are what the score is made of." })));
+      }
+      body.appendChild(readingsSection(t, d));
+    } else if (tab === "fundamentals") {
+      body.appendChild(el("h2", { class: "section-title", text: "Fundamentals" }));
+      body.appendChild(fundamentalsSection(t, d));
+    } else if (tab === "record") {
+      body.appendChild(el("h2", { class: "section-title", text: "Track record for " + t.symbol }));
+      body.appendChild(el("p", { class: "small muted", style: "margin:0 0 .75rem", text: "Every forecast is written down when it is made and graded against the real price when its horizon passes. Nothing here can be adjusted in hindsight." }));
+      body.appendChild(ledgerSection(t, d));
+    } else if (tab === "about") {
+      body.appendChild(el("h2", { class: "section-title", text: "About " + t.name }));
+      body.appendChild(aboutSection(t, d));
+    }
+  }
+
+  function summaryTiles(t, d) {
+    var st = d.stats || {};
+    var q = stream.quotes[t.symbol];
+    var tiles = el("div", { class: "detail__summary" });
+    function tile(label, value, note, noteAttrs) {
+      tiles.appendChild(el("div", { class: "stat" }, el("p", { class: "stat__label", text: label }), el("p", { class: "stat__value" }, value), note ? el("p", Object.assign({ class: "stat__note" }, noteAttrs || {}), note) : null));
+    }
+    var lo = q && q.dayLow > 0 ? q.dayLow : d.dayLow, hi = q && q.dayHigh > 0 ? q.dayHigh : d.dayHigh;
+    tile("Open", money(q && q.open > 0 ? q.open : d.open, t.currency), "Day " + money(lo, t.currency) + " – " + money(hi, t.currency), { dataset: { range: t.symbol } });
+    tile("Volume", el("span", { dataset: { volume: t.symbol }, text: compact(q && q.dayVolume > 0 ? q.dayVolume : d.volume) }), "Average " + compact(st.avgVolume20));
     if (t.marketCap) tile("Market cap", compact(t.marketCap, t.currency), st.beta63 != null ? "Beta " + num(st.beta63, 2) : null);
     tile("1 month", delta(st.ret1m, 1), "This year " + pct(st.ytd, 1));
     tile("1 year", delta(st.ret1y, 1), "Worst drop " + pct(st.maxDrawdown1y, 0));
     tile("Volatility", (st.vol21 == null ? "–" : Math.round(st.vol21 * 100) + "%"), "annualised, last month");
     if (st.high52 && st.low52) {
-      var pos = Math.max(0, Math.min(1, (t.price - st.low52) / (st.high52 - st.low52)));
+      var pos = Math.max(0, Math.min(1, (livePrice(t) - st.low52) / (st.high52 - st.low52)));
       tiles.appendChild(el("div", { class: "range52" }, el("span", { text: money(st.low52, t.currency) }),
         el("div", { class: "range52__bar", role: "img", "aria-label": "52-week range, " + Math.round(pos * 100) + "% of the way from low to high" }, el("div", { class: "range52__dot", style: "left:" + (pos * 100) + "%" })),
         el("span", { text: money(st.high52, t.currency) }), el("span", { class: "muted", text: "52-week range" })));
     }
-    body.appendChild(tiles);
+    return tiles;
+  }
 
-    body.appendChild(priceChartCard(t, d));
+  function kvRow(label, value, sub) {
+    return el("tr", {}, el("th", { scope: "row", text: label }), el("td", {}, value == null || value === "" ? "–" : value, sub ? el("small", { text: sub }) : null));
+  }
 
-    // Forecasts
-    body.appendChild(el("h2", { class: "section-title", text: "Forecasts" }));
-    body.appendChild(forecastGrid(t, d));
-
-    // Scores
-    body.appendChild(el("h2", { class: "section-title", text: "Scores" }));
-    body.appendChild(scoreGrid(t, d));
-
-    // Technical readings and fundamentals
-    body.appendChild(el("h2", { class: "section-title", text: "What the chart says" }));
-    body.appendChild(readingsSection(t, d));
-
-    if (t.type !== "ETF") {
-      body.appendChild(el("h2", { class: "section-title", text: "Fundamentals" }));
-      body.appendChild(fundamentalsSection(t, d));
-    }
-
-    body.appendChild(el("h2", { class: "section-title", text: "Track record for " + t.symbol }));
-    body.appendChild(ledgerSection(t, d));
-
-    if (d.description) {
-      body.appendChild(el("h2", { class: "section-title", text: "About" }));
-      body.appendChild(el("div", { class: "desc" }, el("p", { text: d.description + (d.description.length >= 600 ? "…" : "") }),
-        d.website ? el("p", {}, el("a", { href: d.website, rel: "noopener", text: d.website.replace(/^https?:\/\//, "") })) : null));
-    }
+  function aboutSection(t, d) {
+    var info = (d.fundamentals && d.fundamentals.info) || {};
+    var cols = el("div", { class: "two-col" });
+    cols.appendChild(el("div", { class: "card" }, el("p", { class: "card__title", text: t.type === "ETF" ? "The fund" : "The company" }),
+      el("div", { class: "desc" },
+        d.description ? el("p", { text: d.description + (d.description.length >= 600 ? "…" : "") }) : el("p", { class: "muted", text: "No description is available." }),
+        d.website ? el("p", {}, el("a", { href: d.website, rel: "noopener", text: d.website.replace(/^https?:\/\//, "") })) : null)));
+    cols.appendChild(el("div", { class: "card" }, el("p", { class: "card__title", text: "Listing and data" }), el("table", { class: "kv" }, el("tbody", {},
+      kvRow("Symbol", t.symbol), kvRow("Exchange", t.exchange), kvRow("Currency", t.currency),
+      kvRow("Sector", t.sector, t.industry), kvRow("Country", d.country),
+      kvRow("Prices as of", dateLong(d.asOf), t.live ? "a session in progress at the time of the run" : "close"),
+      kvRow("Last data run", d.generatedAt ? new Date(d.generatedAt).toLocaleString() : "–"),
+      kvRow("Fundamentals fetched", info.fetchedAt ? dateLong(info.fetchedAt.slice(0, 10)) : "–", info.stale ? "Yahoo didn't answer on the last run; showing the previous values" : null),
+      kvRow("Real-time prices", stream.quotes[t.symbol] ? "Streaming from Yahoo Finance" : stream.status === "off" ? "Not available in this browser" : "Stream connected; ticks arrive while the market trades")))));
+    return cols;
   }
 
   /* ---------- the price chart ---------- */
@@ -957,6 +1131,18 @@
     return el("div", {}, grid, note);
   }
 
+  var TECH_PARTS = { trend: "Trend", momentum: "Momentum", oscillators: "Oscillators", volume: "Volume", volatility: "Volatility" };
+
+  function partsList(parts, labels) {
+    if (!parts) return null;
+    var ul = el("ul", { class: "parts" });
+    Object.keys(labels).forEach(function (k) {
+      if (parts[k] == null) return;
+      ul.appendChild(el("li", {}, el("span", { text: labels[k] }), meter(parts[k], scoreClass(parts[k])), el("b", { text: Math.round(parts[k]) })));
+    });
+    return ul;
+  }
+
   function scoreGrid(t, d) {
     var sc = t.scores;
     var grid = el("div", { class: "scores-grid" });
@@ -969,22 +1155,13 @@
       if (partsList) c.appendChild(partsList);
       return c;
     }
-    function partsUl(parts, labels) {
-      if (!parts) return null;
-      var ul = el("ul", { class: "parts" });
-      Object.keys(labels).forEach(function (k) {
-        if (parts[k] == null) return;
-        ul.appendChild(el("li", {}, el("span", { text: labels[k] }), meter(parts[k], scoreClass(parts[k])), el("b", { text: Math.round(parts[k]) })));
-      });
-      return ul;
-    }
     grid.appendChild(card("Overall", sc.overall, "Model 45%, fundamentals 35%, chart 20%. Above 62 reads positive, below 38 negative."));
     grid.appendChild(card("Model", sc.model, "How strongly the forecasts lean, across horizons, relative to the other tracked stocks."));
     grid.appendChild(card("Chart", sc.technical, "Trend, momentum, oscillators, volume and volatility, weighed as below.",
-      partsUl(d.technical && d.technical.parts, { trend: "Trend", momentum: "Momentum", oscillators: "Oscillators", volume: "Volume", volatility: "Volatility" })));
+      partsList(d.technical && d.technical.parts, TECH_PARTS)));
     if (t.type !== "ETF") {
       grid.appendChild(card("Fundamentals", sc.fundamental, "Valuation 35%, quality 25%, growth 20%, safety 10%, analyst sentiment 10%.",
-        partsUl(d.fundamentals && d.fundamentals.score && d.fundamentals.score.parts, { valuation: "Valuation", quality: "Quality", growth: "Growth", safety: "Safety", sentiment: "Sentiment" })));
+        partsList(d.fundamentals && d.fundamentals.score && d.fundamentals.score.parts, { valuation: "Valuation", quality: "Quality", growth: "Growth", safety: "Safety", sentiment: "Sentiment" })));
     }
     return grid;
   }
@@ -1016,22 +1193,26 @@
 
     // Fair value card
     var fvCard = el("div", { class: "card" }, el("p", { class: "card__title", text: "Fair value" }));
+    var methodKeys = Object.keys(fv.methods || {});
     if (fv.value) {
       fvCard.appendChild(el("div", { class: "fv-hero" }, el("b", { text: money(fv.value, cur) }), delta(fv.marginOfSafety, 0, 0.005), el("span", { class: "muted small", text: "vs " + money(d.price, cur) }), d.view12m ? stance(d.view12m.label) : null));
+    } else {
+      fvCard.appendChild(el("p", { class: "record-empty", text: fv.note || "Not enough data to estimate a fair value." }));
+    }
+    if (methodKeys.length) {
       var ul = el("ul", { class: "fv-methods" });
       var weights = { earnings: 0.4, dcf: 0.35, book: 0.35, analysts: 0.25 };
-      var total = 0; Object.keys(fv.methods).forEach(function (k) { total += weights[k] || 0; });
-      Object.keys(fv.methods).forEach(function (k) {
+      var total = 0; methodKeys.forEach(function (k) { if (!fv.methods[k].dropped) total += weights[k] || 0; });
+      methodKeys.forEach(function (k) {
         var m = fv.methods[k], extra = "";
         if (k === "earnings") extra = "Forward EPS " + money(fv.inputs.forwardEps, cur) + " × " + num(m.justifiedPE, 1) + " (peers pay " + (m.peerPE ? num(m.peerPE, 1) : "–") + ", growth justifies " + num(m.growthPE, 1) + ")";
         if (k === "dcf") extra = "Free cash flow growing " + pct(m.growth5y, 0, false) + " a year for five years, fading to " + pct(m.terminalGrowth, 1, false) + ", discounted at " + pct(m.discountRate, 1, false);
         if (k === "book") extra = "Book value " + money(fv.inputs.bookValue, cur) + " per share × peers' price-to-book " + num(m.peerPB, 2);
         if (k === "analysts") extra = m.analysts + " analysts' mean 12-month target";
-        ul.appendChild(el("li", {}, el("span", { style: "grid-column:1", text: m.label + " · weight " + Math.round((weights[k] || 0) / total * 100) + "%" }), el("b", { text: money(m.value, cur) }), el("span", { text: extra })));
+        var use = m.dropped === "implausible" ? "not used: too far from the price to be real" : m.dropped === "outlier" ? "not used: too far from the other methods" : fv.value && total ? "weight " + Math.round((weights[k] || 0) / total * 100) + "%" : "";
+        ul.appendChild(el("li", { class: m.dropped ? "is-dropped" : "" }, el("span", { style: "grid-column:1", text: m.label + (use ? " · " + use : "") }), el("b", { text: money(m.value, cur) }), el("span", { text: extra })));
       });
       fvCard.appendChild(ul);
-    } else {
-      fvCard.appendChild(el("p", { class: "record-empty", text: "Not enough data to estimate a fair value." }));
     }
     cols.appendChild(fvCard);
 
@@ -1075,8 +1256,7 @@
     if (!L.resolved.length) {
       var soonest = L.pending.length ? Math.min.apply(null, L.pending.map(function (e) { return e.h; })) : null;
       box.appendChild(el("p", { class: "record-empty" }, "No graded forecasts for " + t.symbol + " yet. ",
-        L.pending.length ? "The first of the " + L.pending.length + " pending ones comes due in " + soonest + " trading day" + (soonest === 1 ? "" : "s") + "." : "",
-        " Every forecast on this page is written down when it's made and graded when its horizon passes."));
+        L.pending.length ? "The first of the " + L.pending.length + " pending ones comes due in " + soonest + " trading day" + (soonest === 1 ? "" : "s") + "." : ""));
       return box;
     }
     var byH = {};
@@ -1108,12 +1288,20 @@
     var btRecent = s.backtestRecent && Object.keys(s.backtestRecent).length ? s.backtestRecent : null;
     var box = el("div", { class: "method" });
     view.appendChild(box);
+    var contentsList = el("ol", {});
+    box.appendChild(el("nav", { class: "contents", "aria-label": "On this page" }, el("strong", { text: "On this page" }), contentsList));
+    var sectionN = 0;
+    function section(text) {
+      var h = el("h2", { id: "method-" + (++sectionN), text: text });
+      contentsList.appendChild(el("li", {}, el("a", { href: "#/method", text: text, onclick: function (e) { e.preventDefault(); h.scrollIntoView({ behavior: "smooth", block: "start" }); } })));
+      return h;
+    }
     var hs = [1, 5, 21, 63].filter(function (h) { return bt[h]; });
     var tOf = function (r) { return r.ic_daily_t_nw != null ? r.ic_daily_t_nw : r.ic_daily_t; };
     var head = btRecent || bt;
     var bestH = hs.slice().sort(function (a, b) { return (tOf(head[b] || bt[b]) || 0) - (tOf(head[a] || bt[a]) || 0); })[0];
 
-    box.appendChild(el("h2", { text: "What the model can and can't do" }));
+    box.appendChild(section("What the model can and can't do"));
     box.appendChild(el("p", { text: "Nobody can reliably say whether the market goes up or down next month, and a model that pretends to just adds noise. What is mildly predictable is which stocks will do better or worse than the others: the well-documented momentum, short-term reversal and low-volatility effects. So every forecast here has two parts: a market drift, which is simply the historical average return (halved, to stay conservative), and a relative forecast, which is learned and says how much better or worse than the average tracked stock this one should do." }));
     box.appendChild(el("p", { text: "The learned part is an average of two models trained on " + (m.universeSize || "a few hundred") + " stocks at once: a gradient-boosted tree ensemble, which finds interactions such as \"oversold and in an uptrend\", and a ridge regression, which is linear and hard to overfit. They see " + (m.features || 80) + " features computed only from past prices and volumes: returns over many windows, moving-average gaps, RSI, MACD, Bollinger position, volatility, volume flows, each stock's rank among the others, and the market's own state (S&P 500 trend, VIX, 10-year yield). What they learn to predict is each stock's rank among all the others over the next period, after taking out each stock's share of the market's move (half its beta, half one-for-one), so the ranking rewards stock picking rather than a bet on high- or low-beta names, and is more robust than predicting the size of the move. The one-week and one-month forecasts are then blended with their neighbouring horizons' forecasts (15% from each side), which reduced noise in the backtest. Fundamentals are deliberately kept out of the learned model because only today's values are available, and training on them would be cheating." }));
     box.appendChild(el("p", { text: "Forecasts are calibrated against the backtest: if only a third of a predicted relative move materialised on average in the past, today's forecast is scaled by a third. The 80% bands are the model's own out-of-sample errors (conformal prediction), so they are as wide as they need to be. Two honesty rules shape the backtest: a stock only enters the cross-section from the day it joined the S&P 500 (today's survivors can't teach the model what future winners looked like before anyone could have picked them), and European listings see the US market's context with a one-day lag, because their session closes first." }));
@@ -1149,7 +1337,7 @@
             el("td", { text: pct(r.coverage80_out_of_time, 0, false) }), el("td", { text: compact(r.n) }));
         }))));
     }
-    box.appendChild(el("h2", { text: "The backtest, horizon by horizon" }));
+    box.appendChild(section("The backtest, horizon by horizon"));
     box.appendChild(el("p", { text: "Walk-forward: the model that forecasts a six-month period was trained only on data that ended before it, with a gap of one horizon so no training target overlaps the test. The \"best naive rule\" column is what the strongest of four fixed rules (bet on low volatility, on small dollar volume, on past-year momentum, or against last week's move) would have scored, so the model has to beat a real competitor, not a coin flip." }));
     if (btRecent) {
       box.appendChild(backtestTable(btRecent, "Since " + dateLong(s.recentFrom || "2021-01-01") + " (the recent years: the stricter test)"));
@@ -1177,7 +1365,7 @@
     }
 
     if (hs.length) {
-      box.appendChild(el("h2", { text: "Does a stronger forecast mean a bigger move?" }));
+      box.appendChild(section("Does a stronger forecast mean a bigger move?"));
       box.appendChild(el("p", { text: "Forecasts sorted into ten equal buckets, from most bearish to most bullish relative to the other stocks, against the average relative return that actually followed. A well-calibrated model draws a rising staircase; the bars should climb from left to right and roughly match the dots." }));
       var decSeg = el("div", { class: "seg", role: "group", "aria-label": "Horizon" });
       var decHolder = el("div", { class: "chart chart--bars" });
@@ -1194,7 +1382,7 @@
       box.appendChild(decCard);
       var decChart = decileChart(decCanvas, function () { return bt[decH].deciles; });
 
-      box.appendChild(el("h2", { text: "Year by year" }));
+      box.appendChild(section("Year by year"));
       box.appendChild(el("p", { text: "One lucky year can hide a bad model, so here is each year's relative hit rate and rank skill at each horizon." }));
       var years = {};
       hs.forEach(function (h) { (bt[h].by_year || []).forEach(function (y) { years[y.year] = years[y.year] || {}; years[y.year][h] = y; }); });
@@ -1209,7 +1397,7 @@
     }
 
     if (s.importance && s.importance.length) {
-      box.appendChild(el("h2", { text: "What the model pays attention to" }));
+      box.appendChild(section("What the model pays attention to"));
       box.appendChild(el("p", { text: "Permutation importance for the one-month model on recent data: how much worse the forecasts get when each feature is scrambled, as a share of the total." }));
       var names = { ret1: "Yesterday's return", ret5: "5-day return", ret10: "10-day return", ret21: "1-month return", ret63: "3-month return", ret126: "6-month return", ret252: "1-year return", mom12_1: "12-1 momentum", vol10: "10-day volatility", vol21: "1-month volatility", vol63: "3-month volatility", vol_ratio: "Volatility ratio", dvol63: "Downside volatility", skew63: "Return skew", atr_pct: "Average true range", sma20_gap: "Gap to 20-day average", sma50_gap: "Gap to 50-day average", sma200_gap: "Gap to 200-day average", sma50_200: "50 vs 200-day average", slope20: "20-day slope", slope63: "63-day slope", macd: "MACD", macd_hist: "MACD histogram", macd_hist_chg: "MACD histogram change", rsi14: "RSI 14", rsi2: "RSI 2", stoch_k: "Stochastic", bb_pctb: "Bollinger position", bb_width: "Bollinger width", pos52: "52-week position", dd252: "Drawdown from 52-week high", days_since_high: "Days since 52-week high", vol_rel20: "Volume vs 20-day", vol_rel5_63: "Volume 5 vs 63-day", dollar_vol: "Dollar volume", obv_slope: "On-balance volume", updown_vol: "Up-day volume share", intraday: "Intraday move", gap: "Opening gap", range_pct: "Day range", close_pos: "Close within range", streak: "Up/down streak", max_r21: "Best day in a month", min_r21: "Worst day in a month", mkt_ret1: "S&P 500 1-day", mkt_ret5: "S&P 500 5-day", mkt_ret21: "S&P 500 1-month", mkt_ret63: "S&P 500 3-month", mkt_vol21: "S&P 500 volatility", mkt_sma200_gap: "S&P 500 vs 200-day", mkt_rsi14: "S&P 500 RSI", mkt_dd252: "S&P 500 drawdown", vix: "VIX", vix_chg5: "VIX 5-day change", vix_rel63: "VIX vs 3-month average", tnx: "10-year yield", tnx_chg21: "Yield 1-month change", rs21: "Relative strength 1m", rs63: "Relative strength 3m", beta63: "Beta", corr63: "Correlation to market" };
       var max = s.importance[0].share || 1;
@@ -1219,7 +1407,7 @@
       }))));
     }
 
-    box.appendChild(el("h2", { text: "The live track record" }));
+    box.appendChild(section("The live track record"));
     var L = s.ledger || {}, lh = L.horizons || {};
     var graded = Object.keys(lh).reduce(function (n, k) { return n + (lh[k].n || 0); }, 0);
     if (!graded) {
@@ -1235,12 +1423,13 @@
         })))));
     }
 
-    box.appendChild(el("h2", { text: "Fundamentals and the scores" }));
-    box.appendChild(el("p", { text: "Fundamentals move slowly, so they say little about next week but are the only thing that says anything about next year. Three classic methods are blended into a fair value: earnings power (next year's expected earnings times a justified price/earnings ratio, half from what the market pays the company's sector peers here and half from its own expected growth), a ten-year discounted cash flow (free cash flow growing at the recent revenue growth rate, fading to 2.5%, discounted at a rate that rises with the stock's beta, plus net cash), and the analysts' mean target when at least four cover the stock. Banks and insurers use book value instead of cash flow. The 12-month view assumes half of the gap to fair value closes within a year, plus the dividend; it is not backtested, which is why it sits apart from the model's forecasts and why the track record grades it separately." }));
+    box.appendChild(section("Fundamentals and the scores"));
+    box.appendChild(el("p", { text: "Fundamentals move slowly, so they say little about next week but are the only thing that says anything about next year. Three classic methods are blended into a fair value: earnings power (next year's expected earnings times a justified price/earnings ratio, half from what the market pays the company's sector peers here and half from its own expected growth), a ten-year discounted cash flow (free cash flow growing at the recent revenue growth rate, fading to 2.5%, discounted at a rate that rises with the stock's beta, plus net cash), and the analysts' mean target when at least four cover the stock. Banks and insurers use book value instead of cash flow. The methods are blended geometrically, so one generous estimate can't dominate, and a method that lands more than five times away from the price is set aside as a data error or a method that doesn't apply to that company (each stock's page shows which, and why). The 12-month view assumes half of the gap to fair value closes within a year, plus the dividend; it is not backtested, which is why it sits apart from the model's forecasts and why the track record grades it separately." }));
     box.appendChild(el("p", { text: "The fundamental score (0–100) weighs valuation 35%, quality 25% (margins, return on equity, cash conversion), growth 20%, safety 10% (debt, liquidity, beta) and analyst sentiment 10%. The chart score weighs trend 30%, momentum 30%, oscillators 15%, volume 15% and volatility 10%. The overall score is 45% model, 35% fundamentals and 20% chart; funds have no fundamentals, so theirs is model and chart only. None of it is advice: the scores summarise evidence, they don't know your situation." }));
 
-    box.appendChild(el("h2", { text: "Data and refresh" }));
+    box.appendChild(section("Data and refresh"));
     box.appendChild(el("p", { text: "Prices and company data come from Yahoo Finance and are refreshed automatically during US and European trading hours and after each close (the time of the last run is at the top of the page). The model is retrained every day after the US close on " + (m.universeSize || "about 200") + " stocks; the latest model was trained through " + dateLong(m.trainedThrough) + ". The whole thing runs on GitHub Actions and publishes plain JSON files that this page reads; the code is in the blog's repository under tools/stocks." }));
+    box.appendChild(el("p", { text: "Prices on the page update in real time while you have it open: the browser subscribes to Yahoo Finance's public price stream for the tracked symbols, with no key and no server in between, and the indicator in the top corner says whether the stream is connected. The forecasts, scores and fundamentals change only when a data run completes." }));
     box.appendChild(el("p", {}, el("a", { href: "#/", text: "← Back to the overview" })));
   }
 
@@ -1275,106 +1464,153 @@
     });
   }
 
-  /* ---------- live prices (Finnhub, optional) ---------- */
+  /* ---------- real-time prices (Yahoo Finance stream, no key) ---------- */
 
-  var live = { key: null, ok: false, quotes: {}, timer: null, queue: [], tick: 0 };
-  try { live.key = localStorage.getItem("stocksFinnhubKey") || null; } catch (e) { /* storage blocked */ }
+  var feedEl = app.querySelector(".stocks__feed");
+  var STREAM_URL = "wss://streamer.finance.yahoo.com/?version=2";
+  var stream = { ws: null, quotes: {}, status: "paused", retries: 0, retryTimer: null, heartbeat: null, dirty: {}, flushTimer: null,
+    lastTick: 0, lastGlance: 0, supported: typeof WebSocket === "function" && typeof atob === "function" };
 
-  var liveButton = app.querySelector(".stocks__live-button");
-  var livePanel = app.querySelector(".stocks__live-panel");
-  var liveForm = app.querySelector(".stocks__live-form");
-  var liveInput = document.getElementById("stocks-live-key");
-  var liveNote = app.querySelector(".stocks__live-note");
+  // Yahoo's PricingData protobuf: the fields we read, and which varints are zig-zag signed
+  var PB_NAMES = { 1: "id", 2: "price", 3: "time", 4: "currency", 5: "exchange", 6: "quoteType", 7: "marketHours", 8: "changePercent",
+    9: "dayVolume", 10: "dayHigh", 11: "dayLow", 12: "change", 13: "shortName", 15: "open", 16: "previousClose", 27: "priceHint", 33: "marketCap" };
+  var PB_SIGNED = { 3: 1, 9: 1, 14: 1, 19: 1, 20: 1, 21: 1, 22: 1, 24: 1, 26: 1, 27: 1, 28: 1, 29: 1 };
+  var utf8 = typeof TextDecoder === "function" ? new TextDecoder() : null;
 
-  function finnhubSymbol(sym) { return sym.replace("-", "."); }
-  function isUS(sym) { return sym.indexOf(".") < 0; }
+  function decodePricing(b64) {
+    var bin = atob(b64), n = bin.length, buf = new Uint8Array(n);
+    for (var i = 0; i < n; i++) buf[i] = bin.charCodeAt(i);
+    var dv = new DataView(buf.buffer), p = 0, out = {};
+    function varint() { var r = 0, m = 1, b; do { b = buf[p++]; r += (b & 127) * m; m *= 128; } while (b >= 128 && p < n); return r; }
+    while (p < n) {
+      var key = varint(), field = Math.floor(key / 8), wt = key % 8, val;
+      if (wt === 0) { val = varint(); if (PB_SIGNED[field]) val = val % 2 ? -(val + 1) / 2 : val / 2; }
+      else if (wt === 1) { val = dv.getFloat64(p, true); p += 8; }
+      else if (wt === 5) { val = dv.getFloat32(p, true); p += 4; }
+      else if (wt === 2) {
+        var len = varint(), bytes = buf.subarray(p, p + len);
+        val = !PB_NAMES[field] ? null : utf8 ? utf8.decode(bytes) : String.fromCharCode.apply(null, bytes);
+        p += len;
+      } else return out; // an unknown wire type: keep what we have
+      if (PB_NAMES[field]) out[PB_NAMES[field]] = val;
+    }
+    return out;
+  }
 
-  function fetchQuote(sym) {
-    return fetch("https://finnhub.io/api/v1/quote?symbol=" + encodeURIComponent(finnhubSymbol(sym)) + "&token=" + encodeURIComponent(live.key))
-      .then(function (r) {
-        if (r.status === 401 || r.status === 403) throw new Error("The key was rejected by Finnhub.");
-        if (r.status === 429) throw new Error("rate");
-        if (!r.ok) throw new Error("Finnhub answered " + r.status);
-        return r.json();
-      }).then(function (q) {
-        if (!q || !(q.c > 0)) return null;
-        live.quotes[sym] = { c: q.c, d: q.d, dp: q.dp, h: q.h, l: q.l, o: q.o, pc: q.pc, t: q.t || Math.floor(Date.now() / 1000) };
-        live.ok = true;
-        applyQuote(sym);
-        return q;
-      });
+  function setFeed(status, text) {
+    stream.status = status;
+    if (!feedEl) return;
+    feedEl.className = "stocks__feed" + (status === "live" ? " is-live" : status === "connecting" ? " is-connecting" : status === "off" ? " is-off" : "");
+    feedEl.textContent = text || "";
+  }
+
+  function streamSymbols() {
+    return state.summary ? state.summary.tickers.map(function (t) { return t.symbol; }) : [];
+  }
+
+  function streamConnect() {
+    if (!stream.supported) { setFeed("off", "Live prices need a newer browser"); return; }
+    if (!state.summary || stream.ws || document.hidden) return;
+    var symbols = streamSymbols();
+    if (!symbols.length) return;
+    setFeed("connecting", stream.retries ? "Reconnecting live prices…" : "Connecting live prices…");
+    var ws;
+    try { ws = new WebSocket(STREAM_URL); } catch (e) { setFeed("off", "Live prices unavailable"); return; }
+    stream.ws = ws;
+    var openedAt = 0;
+    function subscribe() { if (ws.readyState === 1) ws.send(JSON.stringify({ subscribe: symbols })); }
+    ws.onopen = function () {
+      if (stream.ws !== ws) return;
+      openedAt = Date.now();
+      subscribe();
+      setFeed("idle", "Live feed on · waiting for trades");
+      if (stream.heartbeat) clearInterval(stream.heartbeat);
+      stream.heartbeat = setInterval(subscribe, 15000); // Yahoo drops silent subscriptions; yfinance does the same
+    };
+    ws.onmessage = function (ev) {
+      var msg, q;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (!msg || msg.type !== "pricing" || !msg.message) return;
+      try { q = decodePricing(msg.message); } catch (e) { return; }
+      if (q.id && q.price > 0) onTick(q);
+    };
+    ws.onclose = function () {
+      if (stream.ws !== ws) return;
+      stream.ws = null;
+      if (stream.heartbeat) { clearInterval(stream.heartbeat); stream.heartbeat = null; }
+      if (document.hidden) { setFeed("paused"); return; }
+      if (openedAt && Date.now() - openedAt > 30000) stream.retries = 0; // a long-lived connection that dropped is not a failure
+      stream.retries++;
+      if (stream.retries > 8) { setFeed("off", "Live prices unavailable"); return; }
+      setFeed("connecting", "Reconnecting live prices…");
+      stream.retryTimer = setTimeout(streamConnect, Math.min(60000, 1000 * Math.pow(2, stream.retries)));
+    };
+    ws.onerror = function () { /* the close event that follows handles the retry */ };
+  }
+
+  function streamStop(status) {
+    if (stream.retryTimer) { clearTimeout(stream.retryTimer); stream.retryTimer = null; }
+    if (stream.heartbeat) { clearInterval(stream.heartbeat); stream.heartbeat = null; }
+    var ws = stream.ws;
+    stream.ws = null;
+    if (ws) { try { ws.close(); } catch (e) { /* already gone */ } }
+    setFeed(status || "paused");
+  }
+
+  function onTick(q) {
+    var prev = stream.quotes[q.id];
+    q.flash = prev && prev.price !== q.price ? (q.price > prev.price ? "up" : "down") : null;
+    if (!(q.time > 0)) q.time = Date.now();
+    if (prev) ["changePercent", "change", "dayHigh", "dayLow", "dayVolume", "open", "previousClose", "marketHours"].forEach(function (k) {
+      if (q[k] == null && prev[k] != null) q[k] = prev[k]; // a sparse tick keeps the last full one's fields
+    });
+    stream.quotes[q.id] = q;
+    stream.dirty[q.id] = true;
+    stream.lastTick = Date.now();
+    if (!stream.flushTimer) stream.flushTimer = setTimeout(flushTicks, 200);
+  }
+
+  function flushTicks() {
+    stream.flushTimer = null;
+    var syms = Object.keys(stream.dirty);
+    stream.dirty = {};
+    syms.forEach(applyQuote);
+    setFeed("live", "Live · " + new Date(stream.lastTick).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
+    if (state.route.view === "overview" && glanceRedraw && Date.now() - stream.lastGlance > 3000) { stream.lastGlance = Date.now(); glanceRedraw(); }
+    setTimeout(function () {
+      syms.forEach(function (s) { if (stream.quotes[s]) stream.quotes[s].flash = null; });
+      Array.prototype.forEach.call(view.querySelectorAll(".price-tick.is-up, .price-tick.is-down"), function (n) { n.classList.remove("is-up", "is-down"); });
+    }, 700);
   }
 
   function applyQuote(sym) {
-    var t = tickerBySymbol(sym);
-    if (!t) return;
+    var t = tickerBySymbol(sym), q = stream.quotes[sym];
+    if (!t || !q) return;
     var cell = view.querySelector('[data-price="' + sym + '"]');
     if (cell) fillPriceCell(cell, t);
     var head = view.querySelector('[data-head="' + sym + '"]');
     if (head) head.parentNode.replaceChild(detailHead(t), head);
-    renderStatus();
+    var range = view.querySelector('[data-range="' + sym + '"]');
+    if (range && q.dayLow > 0 && q.dayHigh > 0) range.textContent = "Day " + money(q.dayLow, t.currency) + " – " + money(q.dayHigh, t.currency);
+    var vol = view.querySelector('[data-volume="' + sym + '"]');
+    if (vol && q.dayVolume > 0) vol.textContent = compact(q.dayVolume);
   }
 
-  function liveLoop() {
-    if (live.timer) clearTimeout(live.timer);
-    if (!live.key || !state.summary) return;
-    var open = state.summary.session && state.summary.session.us === "open";
-    var delay = document.hidden ? 60000 : open ? 1300 : 8000;
-    live.timer = setTimeout(function () {
-      var sym = null;
-      if (state.route.view === "detail" && isUS(state.route.symbol) && live.tick % 6 === 0) sym = state.route.symbol;
-      else {
-        if (!live.queue.length) live.queue = state.summary.tickers.map(function (t) { return t.symbol; }).filter(isUS);
-        sym = live.queue.shift();
-      }
-      live.tick++;
-      if (!sym) { liveLoop(); return; }
-      fetchQuote(sym).then(function () { liveNote.textContent = ""; liveLoop(); }, function (err) {
-        if (err.message === "rate") { live.timer = setTimeout(liveLoop, 20000); return; }
-        liveNote.textContent = err.message;
-        if (/rejected/.test(err.message)) { live.ok = false; setLiveKey(null); renderStatus(); return; }
-        live.timer = setTimeout(liveLoop, 30000);
-      });
-    }, delay);
-  }
-
-  function setLiveKey(key) {
-    live.key = key || null;
-    try { if (key) localStorage.setItem("stocksFinnhubKey", key); else localStorage.removeItem("stocksFinnhubKey"); } catch (e) { /* fine */ }
-    liveButton.classList.toggle("is-on", !!key);
-    liveButton.textContent = key ? "Live prices on" : "Live prices";
-    if (!key) { live.quotes = {}; live.ok = false; if (live.timer) clearTimeout(live.timer); live.queue = []; render(); }
-    else { live.queue = []; liveLoop(); }
-  }
-
-  liveButton.addEventListener("click", function () {
-    var open = livePanel.hidden;
-    livePanel.hidden = !open;
-    liveButton.setAttribute("aria-expanded", open ? "true" : "false");
-    if (open) { liveInput.value = live.key || ""; liveInput.focus(); }
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) streamStop("paused");
+    else { stream.retries = 0; streamConnect(); }
   });
-  liveForm.addEventListener("submit", function (e) {
-    e.preventDefault();
-    var key = liveInput.value.trim();
-    if (!key) { liveNote.textContent = "Paste a key first."; return; }
-    liveNote.textContent = "Checking the key…";
-    live.key = key;
-    fetchQuote("AAPL").then(function () { setLiveKey(key); liveNote.textContent = "Live prices are on for US-listed stocks. European listings keep the last data run's price."; },
-      function (err) { live.key = null; liveNote.textContent = err.message === "rate" ? "Finnhub is rate-limiting right now; try again in a minute." : err.message; });
-  });
-  app.querySelector(".stocks__live-clear").addEventListener("click", function () { setLiveKey(null); liveNote.textContent = "Live prices are off and the key was forgotten."; });
-  document.addEventListener("visibilitychange", function () { if (!document.hidden && live.key) liveLoop(); });
+  window.addEventListener("pagehide", function () { streamStop("paused"); });
 
   /* ---------- boot ---------- */
 
   window.addEventListener("hashchange", render);
-  if (live.key) { liveButton.classList.add("is-on"); liveButton.textContent = "Live prices on"; }
 
   loadSummary().then(function (best) {
     state.summary = best.summary; state.base = best.base; state.generatedAt = best.summary.generatedAt;
     render();
     scheduleRefresh();
-    if (live.key) liveLoop();
+    streamConnect();
   }).catch(function (err) {
     clear(view);
     view.appendChild(el("div", { class: "stocks__error" }, el("p", { class: "stocks__error-title", text: "The market data isn't available right now." }),

@@ -152,16 +152,21 @@ Edit mode also warns you about connection names that don't match anything, which
 
 ## 📈 The Stocks page
 
-**https://domyb.github.io/stocks/** tracks a list of stocks and funds with live-ish prices, chart
+**https://domyb.github.io/stocks/** tracks a list of stocks and funds with real-time prices, chart
 signals, fundamentals and forecasts, and it grades its own forecasts in public as they come due.
 
-- **Overview:** every tracked stock with its price, a 60-day sparkline, the forecast for the horizon
-  you pick (a day, a week, a month, three months) with its 80% band and the chance of a gain, the fair
-  value gap, and a 0–100 score. Search, filter by sector, sort any column.
-- **A stock's page:** a price chart with moving averages, Bollinger bands and the forecast cone, RSI and
-  MACD, the forecasts for every horizon, plain-language readings of the chart (trend, momentum,
-  overbought/oversold, volume, volatility), a fair value built from three methods, the key ratios, the
-  analysts' view, and that stock's own track record.
+- **Overview:** a market strip, three at-a-glance cards (biggest moves, the model's favourites for the
+  horizon you pick, the stocks furthest below fair value), then every tracked stock with its price, a
+  60-day sparkline, the forecast for that horizon (a day, a week, a month, three months) with its 80%
+  band and the chance of a gain, the fair value gap, and a 0–100 score. Search, sector chips, sort any
+  column.
+- **A stock's page:** a one-paragraph verdict (model, chart, fundamentals) and five tabs. *Overview:*
+  a price chart with moving averages, Bollinger bands and the forecast cone, RSI and MACD, the
+  forecasts for every horizon, the scores. *Chart signals:* plain-language readings of trend, momentum,
+  overbought/oversold, volume and volatility. *Fundamentals:* a fair value built from three methods
+  (with any method that was set aside, and why), the key ratios and the analysts' view. *Track record:*
+  that stock's graded forecasts. *About:* the company and where the data came from. Each tab has its
+  own address (`#/AAPL/signals`).
 - **How the forecasts work:** what the model can and can't do, the walk-forward backtest horizon by
   horizon next to the naive baselines it has to beat, calibration by decile, year-by-year results, the
   features the model relies on, and the live track record of every forecast published on the site.
@@ -191,9 +196,10 @@ method, with its results, is explained on the page itself. **None of it is inves
   `.MI`). The next data run picks it up. Keep the list to liquid, well-known names.
 - **Refresh by hand:** open the **Actions** tab → *Stocks data* → **Run workflow**. Tick *Force a new
   backtest* to retrain from scratch.
-- **Live prices:** the page refreshes itself every few minutes with the latest run. For second-by-second
-  prices during US hours, click **Live prices** on the page and paste a free
-  [Finnhub](https://finnhub.io/register) key; it stays in that browser only.
+- **Live prices:** while the page is open the browser subscribes to Yahoo Finance's public price
+  stream (`wss://streamer.finance.yahoo.com`) for the tracked symbols, so prices tick in real time with
+  no key and no server in between; the indicator next to the tabs shows the stream's state. The page
+  also reloads the latest data run every few minutes.
 - **The first run:** the scheduled workflow only runs on the `main` branch, so after this lands on
   `main` either wait for the next scheduled time or run it by hand once. GitHub pauses schedules in
   repositories with no activity for 60 days; a commit or a manual run wakes them up.
@@ -204,7 +210,10 @@ method, with its results, is explained on the page itself. **None of it is inves
   and reports paired daily-IC differences with a tune (to 2020) / confirm (2021 on) split and a
   seed-noise floor, so a change is only adopted when it helps in both periods beyond noise.
   `tools/stocks/build_membership.py` refreshes the S&P 500 entry dates used to keep survivorship bias
-  out of the training cross-section.
+  out of the training cross-section. Adopted so far: a beta-residual rank label, blending neighbouring
+  horizons, dense one-day training, the membership mask. Rejected: extra feature packs (within seed
+  noise), recency weighting, and training on the whole S&P 500 (`universe.BROAD_UNIVERSE`, variant
+  `ref500`), which made the forecasts for the tracked large caps *worse* at every horizon.
 
 ---
 

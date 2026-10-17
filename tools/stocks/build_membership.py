@@ -19,7 +19,7 @@ import pandas as pd
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from universe import TRAINING_ONLY  # noqa: E402
+from universe import training_symbols  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
@@ -34,7 +34,7 @@ def main(source: str = URL):
     date_col = next(c for c in table.columns if "added" in c.lower())
     with open(os.path.join(ROOT, "_data", "stocks.yml"), encoding="utf-8") as fh:
         tracked = [str(e["symbol"]).upper() for e in yaml.safe_load(fh)]
-    wanted = set(tracked) | set(TRAINING_ONLY)
+    wanted = set(tracked) | set(training_symbols(True))
     rows = []
     for sym, added in zip(table[sym_col], table[date_col]):
         sym = str(sym).strip().upper().replace(".", "-")

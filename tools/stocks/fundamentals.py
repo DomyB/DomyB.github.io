@@ -113,6 +113,10 @@ def fair_value(info: dict, price: float, medians: dict) -> dict:
     elif earn_growth is not None:
         growth = earn_growth
     if growth is not None:
+        # Earnings can't outgrow revenue by much for long: a one-year EPS rebound
+        # (after a write-down, say) must not buy a growth stock's multiple
+        if rev_growth is not None:
+            growth = min(growth, max(rev_growth, 0.0) + 0.10)
         growth = float(np.clip(growth, -0.10, 0.30))
     out["inputs"].update({
         "forwardEps": eps_f, "trailingEps": eps_t, "expectedGrowth": growth, "beta": beta,
@@ -165,13 +169,29 @@ def fair_value(info: dict, price: float, medians: dict) -> dict:
         out["methods"]["analysts"] = {"value": target, "analysts": int(n_analysts), "label": "Analyst consensus"}
 
     weights = {"earnings": 0.4, "dcf": 0.35, "book": 0.35, "analysts": 0.25}
-    total = sum(weights[k] for k in out["methods"])
-    if total > 0:
-        blended = sum(weights[k] * m["value"] for k, m in out["methods"].items()) / total
+    # Sanity rule before blending: a method more than 5× away from the price is a
+    # data error or a method that doesn't apply, not an opinion (Yahoo reports
+    # Berkshire's book value per Class A share; a simple cash-flow model says
+    # nothing about a company spending all its cash flow on data centres): drop
+    # it, and say so. Once anything was dropped, one survivor isn't enough.
+    dropped = {}
+    for k, m in out["methods"].items():
+        if not (price / 5.0 <= m["value"] <= price * 5.0):
+            dropped[k] = "implausible"
+    kept = {k: m for k, m in out["methods"].items() if k not in dropped}
+    for k, why in dropped.items():
+        out["methods"][k]["dropped"] = why
+    if kept and (not dropped or len(kept) >= 2):
+        # A weighted geometric mean: 3× too high and 3× too low then cancel out,
+        # and one generous method can't drag the blend the way an average lets it
+        total = sum(weights[k] for k in kept)
+        blended = math.exp(sum(weights[k] * math.log(m["value"]) for k, m in kept.items()) / total)
         # Never let one wild method dominate: cap the blend within 0.3×–3× the price
         blended = float(np.clip(blended, 0.3 * price, 3.0 * price))
         out["value"] = blended
         out["marginOfSafety"] = blended / price - 1
+    elif out["methods"]:
+        out["note"] = "The valuation methods disagree too much to give one number."
     return out
 
 

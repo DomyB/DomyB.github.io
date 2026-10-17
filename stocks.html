@@ -18,27 +18,15 @@ stocks: true
   <header class="page-header stocks__header">
     <p class="eyebrow">Stocks</p>
     <h1 class="page-title">Markets, <em>measured</em></h1>
-    <p class="page-lede">Prices, chart signals, fundamentals and forecasts for the stocks I follow, with the forecasts graded in public as they come due.</p>
+    <p class="page-lede">Live prices, chart signals, fundamentals and forecasts for the stocks I follow, with the forecasts graded in public as they come due.</p>
   </header>
 
   <nav class="stocks__tabs" aria-label="Stocks sections">
     <a class="stocks__tab" href="#/" data-view="overview">Overview</a>
     <a class="stocks__tab" href="#/method" data-view="method">How the forecasts work</a>
     <span class="stocks__status" role="status" aria-live="polite"></span>
-    <button type="button" class="stocks__live-button" aria-haspopup="dialog" aria-expanded="false">Live prices</button>
+    <span class="stocks__feed" role="status" aria-live="polite" title="Prices stream straight from Yahoo Finance while a market is open"></span>
   </nav>
-
-  <div class="stocks__live-panel" role="dialog" aria-label="Live prices" hidden>
-    <h2 class="stocks__live-title">Live prices</h2>
-    <p>The page refreshes on its own every few minutes with the latest data run. For second-by-second prices during US trading hours, paste a free <a href="https://finnhub.io/register" rel="noopener">Finnhub</a> API key. It stays in this browser only and is sent to Finnhub alone.</p>
-    <form class="stocks__live-form">
-      <label for="stocks-live-key" class="visually-hidden">Finnhub API key</label>
-      <input id="stocks-live-key" type="password" autocomplete="off" spellcheck="false" placeholder="Finnhub API key">
-      <button type="submit">Save</button>
-      <button type="button" class="stocks__live-clear">Turn off</button>
-    </form>
-    <p class="stocks__live-note" role="status"></p>
-  </div>
 
   <div class="stocks__view" id="stocks-view" tabindex="-1">
     <div class="stocks__loading">
