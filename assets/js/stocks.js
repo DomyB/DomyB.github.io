@@ -219,9 +219,14 @@
     return entry;
   }
 
-  function dropCharts() {
-    charts.forEach(function (c) { if (c.ro) c.ro.disconnect(); });
-    charts = [];
+  function dropCharts(root) {
+    // Forget the charts inside `root` (or every chart when no root is given), so
+    // redrawing one part of the page leaves the others' resize observers alone.
+    charts = charts.filter(function (c) {
+      var mine = !root || !c.canvas.isConnected || root.contains(c.canvas);
+      if (mine && c.ro) c.ro.disconnect();
+      return !mine;
+    });
   }
 
   root.addEventListener("themechange", function () { charts.forEach(function (c) { c.draw(); }); });
@@ -419,7 +424,7 @@
     var rows = s.tickers.filter(function (t) { return !isMarket(t) && t.forecasts[h] && t.forecasts[h].relRet != null; }).sort(function (a, b) { return b.forecasts[h].relRet - a.forecasts[h].relRet; }).slice(0, 5);
     return glanceCard("Model's favourites, " + HORIZON_NAMES[h], rows.map(function (t) {
       var f = t.forecasts[h];
-      return el("li", {}, glanceLink(t), delta(f.ret, 1), el("small", { text: Math.round(f.pUp * 100) + "% chance of a gain · " + pct(f.relRet, 1) + " vs the others" }));
+      return el("li", {}, glanceLink(t), delta(f.ret, 1), el("small", { text: Math.round(f.pUp * 100) + "% chance of a gain · " + pct(f.relRet, 2) + " vs the others" }));
     }), "No forecasts yet.");
   }
 
@@ -497,7 +502,7 @@
     view.appendChild(wrap);
 
     function drawTable() {
-      dropCharts();
+      dropCharts(wrap);
       clear(wrap);
       var q = state.query.trim().toLowerCase();
       var rows = s.tickers.filter(function (t) {
@@ -703,16 +708,16 @@
     var chartText = keys.length ? keys.map(function (k) { return k + " " + st[k]; }).join(", ") + "." : "No readings yet.";
     chartText = chartText.charAt(0).toUpperCase() + chartText.slice(1);
     cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Chart" }), el("p", { text: chartText }), stance(scoreStance(sc.technical))));
-    if (t.type !== "ETF") {
+    if (isMarket(t)) {
+      var cfd = cfdName(t);
+      cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Market" }),
+        el("p", { text: marketKind(t).charAt(0).toUpperCase() + marketKind(t).slice(1) + ", quoted in " + t.currency + "." + (cfd ? " CFD brokers list it as " + cfd + "." : "") + " Fundamentals don't apply; its score is the model and the chart." })));
+    } else if (t.type !== "ETF") {
       var fv = t.fairValue, v = t.view12m;
       var fundText = fv
         ? el("p", {}, "Fair value ", el("b", { text: money(fv.value, t.currency) }), ", " + pct(Math.abs(fv.marginOfSafety), 0, false) + (fv.marginOfSafety >= 0 ? " above" : " below") + " the price", v ? [". Twelve-month view ", delta(v.expectedReturn12m, 0), " including the dividend."] : ".")
         : el("p", { text: "Not enough data for a fair value." });
       cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Fundamentals" }), fundText, stance(fv ? fv.label : "neutral")));
-    } else if (isMarket(t)) {
-      var cfd = cfdName(t);
-      cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Market" }),
-        el("p", { text: marketKind(t).charAt(0).toUpperCase() + marketKind(t).slice(1) + ", quoted in " + t.currency + "." + (cfd ? " CFD brokers list it as " + cfd + "." : "") + " Fundamentals don't apply; its score is the model and the chart." })));
     } else {
       cols.push(el("div", { class: "verdict-card__col" }, el("h3", { text: "Fundamentals" }), el("p", { text: "A fund has no fundamentals of its own; its score is the model and the chart." })));
     }
