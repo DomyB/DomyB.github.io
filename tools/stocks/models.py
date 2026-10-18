@@ -161,8 +161,18 @@ def make_ridge_cs():
     return make_pipeline(SimpleImputer(strategy="constant", fill_value=0.0), Ridge(alpha=RIDGE_ALPHA))
 
 
+def _no_empty_columns(X: np.ndarray) -> np.ndarray:
+    """A feature with no value at all in this training window (a series that starts
+    later) would crash the boosted trees' binning: make it a constant instead."""
+    empty = np.isnan(X).all(axis=0)
+    if empty.any():
+        X = X.copy()
+        X[:, empty] = 0.0
+    return X
+
+
 def fit_learners(train: pd.DataFrame, features: list[str], hzn: int, seed: int = 0) -> dict:
-    Xtr = train[features].to_numpy(dtype=np.float32)
+    Xtr = _no_empty_columns(train[features].to_numpy(dtype=np.float32))
     ytr = train[f"{TARGET}_{hzn}"].to_numpy(dtype=float)
     w = _sample_weights(train)
     n_seeds = N_SEEDS[hzn] if isinstance(N_SEEDS, dict) else N_SEEDS

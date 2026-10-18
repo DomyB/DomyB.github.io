@@ -178,7 +178,7 @@ def _target(frame: pd.DataFrame, hzn: int, drift: dict[str, float]) -> np.ndarra
 
 def _fit(train: pd.DataFrame, features: list[str], hzn: int, seed: int) -> dict:
     drift = _drift_by_class(train, hzn)
-    X = train[features].to_numpy(dtype=np.float32)
+    X = models._no_empty_columns(train[features].to_numpy(dtype=np.float32))
     y = _target(train, hzn, drift)
     gbm = models.make_gbm(seed).fit(X, y)
     ridge = models.make_ridge().fit(X, y)
