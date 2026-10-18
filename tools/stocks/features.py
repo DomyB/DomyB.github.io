@@ -17,7 +17,7 @@ HORIZONS = [1, 5, 21, 63]  # trading days: a day, a week, a month, a quarter
 FEATURE_VERSION = "4"      # bump when features change, so cached experiment panels are rebuilt
 # Optional feature groups. The experiment harness switches them on one at a
 # time; production uses PRODUCTION_FLAGS (the ones that earned their place).
-PRODUCTION_FLAGS: set[str] = {"membership"}
+PRODUCTION_FLAGS: set[str] = {"membership", "ctx2"}  # ctx2: VIX term structure, SKEW, dollar, credit, curve (altdata.py)
 FEATURE_FLAGS: set[str] = set()
 HORIZON_LABELS = {1: "1 day", 5: "1 week", 21: "1 month", 63: "3 months"}
 

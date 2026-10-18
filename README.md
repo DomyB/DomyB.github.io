@@ -222,9 +222,14 @@ method, with its results, is explained on the page itself. **None of it is inves
   seed-noise floor, so a change is only adopted when it helps in both periods beyond noise.
   `tools/stocks/build_membership.py` refreshes the S&P 500 entry dates used to keep survivorship bias
   out of the training cross-section. Adopted so far: a beta-residual rank label, blending neighbouring
-  horizons, dense one-day training, the membership mask. Rejected: extra feature packs (within seed
-  noise), recency weighting, and training on the whole S&P 500 (`universe.BROAD_UNIVERSE`, variant
-  `ref500`), which made the forecasts for the tracked large caps *worse* at every horizon.
+  horizons, dense one-day training, the membership mask, and the `ctx2` context pack (VIX term
+  structure, SKEW, the dollar, HYG/LQD credit, the 2-year yield and the curve slope), which added a
+  small but consistent gain at the one-week and one-month horizons in both test periods. Rejected:
+  extra price-feature packs (within seed noise), recency weighting, training on the whole S&P 500
+  (`ref500`, worse at every horizon), and two free alternative-data packs built in
+  `tools/stocks/altdata.py` that are kept behind flags for anyone who wants to retry them: point-in-time
+  fundamentals from SEC EDGAR (`fund`, and a three-composite `fundlite`), which helped before 2021 and
+  hurt after, the classic value-factor pattern, and the earnings calendar (`earn`), which added nothing.
 
 ---
 
