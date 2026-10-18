@@ -16,9 +16,9 @@ Three families, each behind a feature flag so the backtest can judge them:
   the market's reaction to it, the ingredients of post-earnings-announcement
   drift (Bernard & Thomas 1989).
 * **ctx2** – extra market context with full history: the VIX term structure
-  (^VIX9D, ^VIX3M), the SKEW index, the dollar index, and from FRED's keyless
-  CSV endpoint the high-yield credit spread, the 2-year yield and the 10y–2y
-  slope, each lagged a day because FRED publishes with a lag.
+  (^VIX9D, ^VIX3M), the SKEW index, the dollar index, credit conditions from the
+  HYG/LQD ETF pair, and from FRED's keyless CSV endpoint the 2-year yield and
+  the 10y–2y slope, each lagged a day because FRED publishes with a lag.
 """
 from __future__ import annotations
 
@@ -54,8 +54,10 @@ STOCK_CONCEPTS = {
 }
 FUND_FEATURES = ["ey", "bm", "sp", "cfy", "roa", "cfoa", "ag", "fmom", "accr", "filing_age"]
 EARN_FEATURES = ["days_to_earn", "days_since_earn", "sue_last", "pead", "ear_ret"]
-CTX2_YAHOO = {"vix3m": "^VIX3M", "vix9d": "^VIX9D", "skew": "^SKEW", "dxy": "DX-Y.NYB"}
-CTX2_FRED = {"hy_oas": "BAMLH0A0HYM2", "dgs2": "DGS2", "t10y2y": "T10Y2Y"}
+CTX2_YAHOO = {"vix3m": "^VIX3M", "vix9d": "^VIX9D", "skew": "^SKEW", "dxy": "DX-Y.NYB", "hyg": "HYG", "lqd": "LQD"}
+# FRED's keyless download only gives the last three years of the ICE BofA credit
+# spread, so credit comes from the HYG/LQD ETF pair on Yahoo (history since 2007)
+CTX2_FRED = {"dgs2": "DGS2", "t10y2y": "T10Y2Y"}
 
 
 def _cache_path(*parts):
@@ -435,7 +437,7 @@ def earnings_daily(events: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
 # --- extra market context ------------------------------------------------------------
 
 def fred_series(series_id: str, max_age_days: float = 1) -> pd.Series:
-    raw = _get(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}", max_age_days, ("fred", f"{series_id}.csv"))
+    raw = _get(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd=2000-01-01", max_age_days, ("fred", f"{series_id}.csv"))
     if not raw:
         return pd.Series(dtype=float)
     df = pd.read_csv(io.BytesIO(raw))
@@ -477,10 +479,12 @@ def context_extra_features(index: pd.DatetimeIndex, series: dict[str, pd.Series]
     if dx is not None:
         x["dxy_chg21"] = dx / dx.shift(21) - 1
         x["dxy_rel200"] = dx / dx.rolling(200).mean() - 1
-    hy, d2, slope = on("hy_oas", 1), on("dgs2", 1), on("t10y2y", 1)
-    if hy is not None:
-        x["hy_oas"] = hy
-        x["hy_chg21"] = hy - hy.shift(21)
+    hyg, lqd = on("hyg"), on("lqd")
+    if hyg is not None and lqd is not None:
+        credit = np.log(hyg / lqd)  # high yield against investment grade: falls when credit stress rises
+        x["credit_chg21"] = credit - credit.shift(21)
+        x["credit_rel200"] = credit - credit.rolling(200).mean()
+    d2, slope = on("dgs2", 1), on("t10y2y", 1)
     if d2 is not None:
         x["dgs2_chg21"] = d2 - d2.shift(21)
     if slope is not None:
