@@ -14,6 +14,7 @@ on:
     - cron: "20,50 7-12 * * 1-5"    # Milan session (09:20–14:50 CET/CEST)
     - cron: "5,35 13-21 * * 1-5"    # US session (09:35 ET → after the close)
     - cron: "15 22 * * 1-5"         # once more after the close, to grade the day
+    - cron: "40 23 * * 1-5"         # and a fallback: GitHub drops scheduled runs under load
   workflow_dispatch:
     inputs:
       full:
