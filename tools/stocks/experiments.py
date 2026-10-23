@@ -358,7 +358,7 @@ def stack(names: list[str], base: str = "ref_ctx2", out: str | None = None) -> d
         p = pd.read_pickle(os.path.join(CACHE, "preds", f"{n}.pkl"))[["date", "symbol", "h", "pred"]].rename(columns={"pred": n})
         frames[n] = p
     ref = pd.read_pickle(os.path.join(CACHE, "preds", f"{base}.pkl"))
-    merged = ref[["date", "symbol", "h", "drift", "z_true", "zr_true", "y_true", "sigma"]]
+    merged = ref[["date", "symbol", "h", "drift", "z_true", "zr_true", "y_true", "sigma", "pred_gbm", "pred_ridge"]]
     for n, p in frames.items():
         merged = merged.merge(p, on=["date", "symbol", "h"], how="inner")
     merged = merged.sort_values(["h", "date", "symbol"]).reset_index(drop=True)
