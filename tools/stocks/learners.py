@@ -37,13 +37,30 @@ CAT_PARAMS = dict(iterations=500, learning_rate=0.03, depth=6, l2_leaf_reg=5.0, 
                   bootstrap_type="Bernoulli", border_count=127, verbose=0, allow_writing_files=False)
 MLP_PARAMS = dict(hidden=(256, 128), dropout=0.15, epochs=6, batch=4096, lr=1e-3, weight_decay=1e-4, listnet=0.0)
 RANK_GRADES = 10
+# LightGBM with the production trees' own settings: the control that shows the port itself changes nothing
+LGBM_PORT_PARAMS = dict(n_estimators=250, learning_rate=0.03, num_leaves=15, min_child_samples=300, reg_lambda=3.0,
+                        colsample_bytree=0.6, subsample=1.0, max_bin=255, verbose=-1)
+# Per-horizon regularised sets: leaves grow rarer and shrink harder as the horizon lengthens, because
+# overlapping labels make neighbouring strided dates near-duplicates and the effective sample shrinks
+LGBM_REG_BY_H = {
+    1: dict(n_estimators=500, learning_rate=0.02, num_leaves=15, min_child_samples=4000, colsample_bytree=0.4, subsample=0.7,
+            subsample_freq=1, reg_lambda=10.0, path_smooth=10.0, max_bin=255, verbose=-1),
+    5: dict(n_estimators=500, learning_rate=0.02, num_leaves=15, min_child_samples=4000, colsample_bytree=0.4, subsample=0.7,
+            subsample_freq=1, reg_lambda=10.0, path_smooth=10.0, max_bin=255, verbose=-1),
+    21: dict(n_estimators=400, learning_rate=0.02, num_leaves=7, min_child_samples=3000, colsample_bytree=0.4, subsample=0.7,
+             subsample_freq=1, reg_lambda=20.0, path_smooth=20.0, max_bin=255, verbose=-1),
+    63: dict(n_estimators=300, learning_rate=0.02, num_leaves=7, min_child_samples=2000, colsample_bytree=0.4, subsample=0.7,
+             subsample_freq=1, reg_lambda=30.0, path_smooth=20.0, max_bin=255, verbose=-1),
+}
+LGBM_HUBER_PARAMS = dict(objective="huber", alpha=1.0, n_estimators=400, learning_rate=0.02, num_leaves=15, min_child_samples=2000,
+                         colsample_bytree=0.5, subsample=0.7, subsample_freq=1, reg_lambda=10.0, max_bin=255, verbose=-1)
 
 
 class _LGBM:
-    def __init__(self, seed, rank=False):
+    def __init__(self, seed, rank=False, params=None):
         import lightgbm as lgb
         self.rank = rank
-        params = dict(LGBM_RANK_PARAMS if rank else LGBM_PARAMS, random_state=seed, n_jobs=THREADS)
+        params = dict(params if params is not None else (LGBM_RANK_PARAMS if rank else LGBM_PARAMS), random_state=seed, n_jobs=THREADS)
         self.model = lgb.LGBMRanker(**params) if rank else lgb.LGBMRegressor(**params)
 
     def fit(self, X, y, groups=None):
@@ -121,31 +138,34 @@ class _MLP:
         self.net = nn.Sequential(*layers)
         opt = torch.optim.AdamW(self.net.parameters(), lr=self.p["lr"], weight_decay=self.p["weight_decay"])
         listnet = float(self.p["listnet"])
+        g = torch.Generator().manual_seed(self.seed)
+        self.net.train()
         if listnet > 0 and groups is not None:
-            # Batches are whole trading days, so the softmax runs over a day's stocks
+            # Batches are whole trading days; the ListNet term is a softmax over each day's
+            # stocks, computed for every day in the batch at once with segment reductions
+            gid_all = torch.from_numpy(np.repeat(np.arange(len(groups)), groups))
             starts = np.concatenate([[0], np.cumsum(groups)[:-1]])
-            days = list(zip(starts, groups))
-            rng = np.random.default_rng(self.seed)
             per_batch = max(1, self.p["batch"] // max(int(np.mean(groups)), 1))
-            self.net.train()
             for _ in range(self.p["epochs"]):
-                order = rng.permutation(len(days))
+                order = torch.randperm(len(groups), generator=g).numpy()
                 for i in range(0, len(order), per_batch):
-                    idx = np.concatenate([np.arange(days[j][0], days[j][0] + days[j][1]) for j in order[i:i + per_batch]])
+                    days = order[i:i + per_batch]
+                    idx = np.concatenate([np.arange(starts[j], starts[j] + groups[j]) for j in days])
                     xb, yb = Xs[idx], ys[idx]
+                    local = torch.from_numpy(np.repeat(np.arange(len(days)), [groups[j] for j in days]))
                     out = self.net(xb).squeeze(-1)
                     loss = nn.functional.mse_loss(out, yb)
-                    for j in order[i:i + per_batch]:
-                        s, g = days[j]
-                        sel = slice(s, s + g)
-                        o = self.net(Xs[sel]).squeeze(-1)
-                        p = torch.log_softmax(o, dim=0)
-                        q = torch.softmax(ys[sel] * 4.0, dim=0)
-                        loss = loss + listnet * -(q * p).sum() / per_batch
+                    G = len(days)
+                    def log_softmax_seg(v):
+                        m = torch.full((G,), -1e9).index_reduce_(0, local, v.detach(), "amax", include_self=True)
+                        z = (v - m[local]).exp()
+                        den = torch.zeros(G).index_add_(0, local, z)
+                        return v - m[local] - den[local].log()
+                    logp = log_softmax_seg(out)
+                    q = log_softmax_seg(yb * 4.0).exp()
+                    loss = loss + listnet * (-(q * logp).sum() / G)
                     opt.zero_grad(); loss.backward(); opt.step()
         else:
-            g = torch.Generator().manual_seed(self.seed)
-            self.net.train()
             for _ in range(self.p["epochs"]):
                 perm = torch.randperm(n, generator=g)
                 for i in range(0, n, self.p["batch"]):
@@ -166,10 +186,16 @@ class _MLP:
         return np.concatenate(out) if out else np.zeros(0)
 
 
-def make(kind: str, seed: int):
+def make(kind: str, seed: int, hzn: int | None = None):
     """A learner of the given kind: hgb is made by models.make_gbm; the rest live here."""
     if kind == "lgbm":
         return _LGBM(seed)
+    if kind == "lgbm_port":
+        return _LGBM(seed, params=LGBM_PORT_PARAMS)
+    if kind == "lgbm_reg":
+        return _LGBM(seed, params=LGBM_REG_BY_H.get(hzn, LGBM_REG_BY_H[21]))
+    if kind == "lgbm_huber":
+        return _LGBM(seed, params=LGBM_HUBER_PARAMS)
     if kind == "lgbm_rank":
         return _LGBM(seed, rank=True)
     if kind == "xgb":

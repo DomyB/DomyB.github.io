@@ -67,6 +67,8 @@ GBM_PARAMS = dict(loss="squared_error", learning_rate=0.03, max_iter=250, max_le
 RIDGE_ALPHA = 50.0
 N_SEEDS = 1                 # average this many boosted models with different seeds (bagging); may be a per-horizon dict
 GBM_KIND = "hgb"            # the non-linear learner: "hgb" (production) or one of learners.py's kinds (lgbm, lgbm_rank, xgb, cat, mlp, mlp_rank)
+EXTRA_MEMBERS = {}          # further ensemble members: name -> {"kind": learners.py kind, "target": "zrank" | "zr"}; weighted by ENSEMBLE_WEIGHTS[name]
+BAG_DATE_FRAC = None        # with N_SEEDS > 1: each seed trains on this fraction of the training *dates* (block bagging); None = all rows
 SEED_OFFSET = 0             # shifts every random seed (used to measure seed noise)
 RIDGE_CS = False            # True: the ridge sees only cross-sectional rank features (rank-on-rank)
 MIN_CROSS_SECTION = 30      # a date with fewer complete symbols (a US holiday) is neither trained on nor scored
@@ -109,11 +111,12 @@ class _HGB:
         return self.model.predict(X)
 
 
-def make_gbm(seed: int = 0):
-    if GBM_KIND == "hgb":
+def make_gbm(seed: int = 0, hzn: int | None = None, kind: str | None = None):
+    kind = kind or GBM_KIND
+    if kind == "hgb":
         return _HGB(seed)
     import learners
-    return learners.make(GBM_KIND, seed)
+    return learners.make(kind, seed, hzn)
 
 
 def make_ridge():
@@ -199,8 +202,19 @@ def fit_learners(train: pd.DataFrame, features: list[str], hzn: int, seed: int =
     dates = train.index.get_level_values("date").to_numpy()
     change = np.flatnonzero(dates[1:] != dates[:-1]) + 1
     groups = np.diff(np.concatenate([[0], change, [len(dates)]])).tolist()
-    if w is None:
-        gbms = [make_gbm(seed * 100 + k).fit(Xtr, ytr, groups) for k in range(n_seeds)]
+    if w is None and n_seeds > 1 and BAG_DATE_FRAC:
+        # Block bagging: each seed sees a random subset of whole dates, so overlapping
+        # labels stay together and the seeds disagree where the data are thin
+        gbms = []
+        starts = np.concatenate([[0], np.cumsum(groups)[:-1]])
+        for k in range(n_seeds):
+            rng = np.random.default_rng(seed * 100 + k)
+            keep_days = rng.random(len(groups)) < BAG_DATE_FRAC
+            idx = np.concatenate([np.arange(starts[j], starts[j] + groups[j]) for j in np.flatnonzero(keep_days)])
+            g_k = [groups[j] for j in np.flatnonzero(keep_days)]
+            gbms.append(make_gbm(seed * 100 + k, hzn).fit(Xtr[idx], ytr[idx], g_k))
+    elif w is None:
+        gbms = [make_gbm(seed * 100 + k, hzn).fit(Xtr, ytr, groups) for k in range(n_seeds)]
     else:
         # Boosted trees with sample weights re-bin every feature by weighted
         # percentiles, which is very slow in scikit-learn; a weighted subsample
@@ -209,16 +223,22 @@ def fit_learners(train: pd.DataFrame, features: list[str], hzn: int, seed: int =
         gbms = []
         for k in range(n_seeds):
             keep = np.random.default_rng(seed * 100 + k).random(len(w)) < w
-            gbms.append(make_gbm(seed * 100 + k).fit(Xtr[keep], ytr[keep]))
+            gbms.append(make_gbm(seed * 100 + k, hzn).fit(Xtr[keep], ytr[keep]))
     rf = ridge_features(train, features)
     ridge = make_ridge_cs() if RIDGE_CS else make_ridge()
     ridge.fit(train[rf].to_numpy(dtype=np.float32), ytr, **({"ridge__sample_weight": w} if w is not None else {}))
+    extras = {}
+    for name, spec in EXTRA_MEMBERS.items():
+        col = f"{spec.get('target', 'zrank')}_{hzn}"
+        yt = train[col].to_numpy(dtype=float)
+        ok_t = np.isfinite(yt)
+        extras[name] = make_gbm(seed * 100 + 7, hzn, kind=spec["kind"]).fit(Xtr[ok_t], yt[ok_t], None if not ok_t.all() else groups)
     y = train[f"y_{hzn}"].to_numpy(dtype=float)
     ok = np.isfinite(y)
     drift = float(np.average(y[ok], weights=None if w is None else w[ok])) if ok.any() else 0.0
     return {
         "gbm": gbms[0] if len(gbms) == 1 else SeedBag(gbms),
-        "ridge": ridge, "ridge_features": rf, "features": list(features),
+        "ridge": ridge, "ridge_features": rf, "features": list(features), "extras": extras,
         # The market drift is a plain average return (not volatility-scaled: a
         # wilder stock doesn't earn more on average, it just moves more).
         "drift": DRIFT_SHRINK * drift,
@@ -227,9 +247,23 @@ def fit_learners(train: pd.DataFrame, features: list[str], hzn: int, seed: int =
 
 
 def predict_raw(learners: dict, rows: pd.DataFrame) -> dict[str, np.ndarray]:
-    g = learners["gbm"].predict(rows[learners["features"]].to_numpy(dtype=np.float32)).astype(np.float64)
+    X = rows[learners["features"]].to_numpy(dtype=np.float32)
+    g = learners["gbm"].predict(X).astype(np.float64)
     r = learners["ridge"].predict(rows[learners["ridge_features"]].to_numpy(dtype=np.float32)).astype(np.float64)
-    return {"gbm": g, "ridge": r, "pred": ENSEMBLE_WEIGHTS["gbm"] * g + ENSEMBLE_WEIGHTS["ridge"] * r}
+    out = {"gbm": g, "ridge": r}
+    for name, model in (learners.get("extras") or {}).items():
+        out[name] = model.predict(X).astype(np.float64)
+    # Members are standardised before mixing, so a member with a different target scale
+    # (the raw return) weighs what its weight says, not what its units happen to be
+    def z(v):
+        sd = float(np.std(v))
+        return (v - v.mean()) / sd if sd > 0 else v - v.mean()
+    if len(out) > 2:
+        total = sum(ENSEMBLE_WEIGHTS.get(k, 0.0) for k in out)
+        out["pred"] = sum(ENSEMBLE_WEIGHTS.get(k, 0.0) * z(v) for k, v in out.items()) / (total or 1.0)
+    else:
+        out["pred"] = ENSEMBLE_WEIGHTS["gbm"] * g + ENSEMBLE_WEIGHTS["ridge"] * r
+    return out
 
 
 def walk_forward(panel: pd.DataFrame, features: list[str], min_train_days: int = 1000, step: int = 126,
