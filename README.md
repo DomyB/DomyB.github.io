@@ -230,6 +230,15 @@ method, with its results, is explained on the page itself. **None of it is inves
   `tools/stocks/altdata.py` that are kept behind flags for anyone who wants to retry them: point-in-time
   fundamentals from SEC EDGAR (`fund`, and a three-composite `fundlite`), which helped before 2021 and
   hurt after, the classic value-factor pattern, and the earnings calendar (`earn`), which added nothing.
+- **Other model families** (`tools/stocks/learners.py`, switched with `models.GBM_KIND` or
+  `models.EXTRA_MEMBERS`): LightGBM with the production settings, retuned and per-horizon regularised,
+  LightGBM LambdaRank with each day as a query, XGBoost, CatBoost, a PyTorch MLP alone, with a ListNet
+  ranking loss, and as a third ensemble member, a Huber-loss tree on the raw-return target as a fourth
+  member, three-seed date-block bagging, and a stacked blend of all of them with weights fitted on the
+  tune period. None beat the production trees-plus-ridge beyond seed noise in both periods (the stack
+  gained in the years its weights were fitted on and gave it back after), which is the usual finding
+  for daily large-cap data: the information is in the features, not in the learner. They stay
+  available for anyone who wants to retest them with new features.
 
 ---
 
