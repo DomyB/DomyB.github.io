@@ -62,6 +62,21 @@ VARIANTS: dict[str, dict] = {
     "ref": {"beta_shrink": 0.5, "feature_flags": {"membership"},
             "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
     # The same model trained on the whole S&P 500 (judged on the tracked symbols only)
+    # --- the "most advanced model" round: other learners in the trees' slot, same features as production
+    "adv_lgbm": {"beta_shrink": 0.5, "feature_flags": {"membership", "ctx2"}, "models.GBM_KIND": "lgbm",
+                 "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
+    "adv_lgbm_rank": {"beta_shrink": 0.5, "feature_flags": {"membership", "ctx2"}, "models.GBM_KIND": "lgbm_rank",
+                      "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
+    "adv_xgb": {"beta_shrink": 0.5, "feature_flags": {"membership", "ctx2"}, "models.GBM_KIND": "xgb",
+                "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
+    "adv_cat": {"beta_shrink": 0.5, "feature_flags": {"membership", "ctx2"}, "models.GBM_KIND": "cat",
+                "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
+    "adv_mlp": {"beta_shrink": 0.5, "feature_flags": {"membership", "ctx2"}, "models.GBM_KIND": "mlp",
+                "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
+    "adv_mlp_rank": {"beta_shrink": 0.5, "feature_flags": {"membership", "ctx2"}, "models.GBM_KIND": "mlp_rank",
+                     "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
+    "adv_bag3": {"beta_shrink": 0.5, "feature_flags": {"membership", "ctx2"}, "models.N_SEEDS": 3,
+                 "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
     "ref_fund": {"beta_shrink": 0.5, "feature_flags": {"membership", "fund"},
                  "models.TRAIN_STRIDE": {1: 1, 5: 3, 21: 5, 63: 10}, "models.BLEND": {5: BLEND_A[5], 21: BLEND_A[21]}},
     "ref_fundlite": {"beta_shrink": 0.5, "feature_flags": {"membership", "fund", "fundlite"},
@@ -312,6 +327,43 @@ def run(name: str, years: int, step: int) -> dict:
     report["meta"] = {"variant": name, "overrides": {k: (sorted(v) if isinstance(v, (set, frozenset)) else v) for k, v in overrides.items()},
                       "years": years, "rows": int(len(panel)), "features": len(feats), "seconds": round(time.time() - t0)}
     _save(name, oos, report)
+    return report
+
+
+def stack(names: list[str], base: str = "ref_ctx2", out: str | None = None) -> dict:
+    """Stack the saved out-of-sample predictions of several variants: per horizon,
+    a non-negative least-squares blend of their per-date-demeaned, standardised
+    forecasts is fitted on the tune period only and applied everywhere, so the
+    confirm period is a genuine test of the blend. Saves the result as a
+    variant named `out` (default "stack_" + joined names)."""
+    from scipy.optimize import nnls
+    frames = {}
+    for n in names:
+        p = pd.read_pickle(os.path.join(CACHE, "preds", f"{n}.pkl"))[["date", "symbol", "h", "pred"]].rename(columns={"pred": n})
+        frames[n] = p
+    ref = pd.read_pickle(os.path.join(CACHE, "preds", f"{base}.pkl"))
+    merged = ref[["date", "symbol", "h", "drift", "z_true", "zr_true", "y_true", "sigma"]]
+    for n, p in frames.items():
+        merged = merged.merge(p, on=["date", "symbol", "h"], how="inner")
+    merged = merged.sort_values(["h", "date", "symbol"]).reset_index(drop=True)
+    weights = {}
+    merged["pred"] = 0.0
+    for hzn in sorted(merged["h"].unique()):
+        m = merged["h"] == hzn
+        sub = merged.loc[m]
+        X = np.column_stack([(sub[n] - sub.groupby("date")[n].transform("mean")).to_numpy() for n in names])
+        X = X / (X.std(axis=0) + 1e-12)
+        tune = (sub["date"] <= TUNE_END).to_numpy() & np.isfinite(sub["zr_true"].to_numpy())
+        w, _ = nnls(X[tune], sub["zr_true"].to_numpy()[tune])
+        if w.sum() <= 0:
+            w = np.ones(len(names)) / len(names)
+        w = w / w.sum()
+        weights[int(hzn)] = {n: float(v) for n, v in zip(names, w)}
+        merged.loc[m, "pred"] = X @ w
+    name = out or ("stack_" + "+".join(names))
+    report = split_report(merged)
+    report["meta"] = {"variant": name, "stack_of": names, "base": base, "weights": weights}
+    _save(name, merged, report)
     return report
 
 

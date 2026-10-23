@@ -66,6 +66,7 @@ GBM_PARAMS = dict(loss="squared_error", learning_rate=0.03, max_iter=250, max_le
                   min_samples_leaf=300, l2_regularization=3.0, max_features=0.6, early_stopping=False)
 RIDGE_ALPHA = 50.0
 N_SEEDS = 1                 # average this many boosted models with different seeds (bagging); may be a per-horizon dict
+GBM_KIND = "hgb"            # the non-linear learner: "hgb" (production) or one of learners.py's kinds (lgbm, lgbm_rank, xgb, cat, mlp, mlp_rank)
 SEED_OFFSET = 0             # shifts every random seed (used to measure seed noise)
 RIDGE_CS = False            # True: the ridge sees only cross-sectional rank features (rank-on-rank)
 MIN_CROSS_SECTION = 30      # a date with fewer complete symbols (a US holiday) is neither trained on nor scored
@@ -94,8 +95,25 @@ class QuantileClipper(BaseEstimator, TransformerMixin):
         return np.clip(np.asarray(X, dtype=float), self.lo_, self.hi_)
 
 
-def make_gbm(seed: int = 0) -> HistGradientBoostingRegressor:
-    return HistGradientBoostingRegressor(random_state=seed, **GBM_PARAMS)
+class _HGB:
+    """The production trees behind the common learner interface (groups are ignored)."""
+
+    def __init__(self, seed):
+        self.model = HistGradientBoostingRegressor(random_state=seed, **GBM_PARAMS)
+
+    def fit(self, X, y, groups=None):
+        self.model.fit(X, y)
+        return self
+
+    def predict(self, X):
+        return self.model.predict(X)
+
+
+def make_gbm(seed: int = 0):
+    if GBM_KIND == "hgb":
+        return _HGB(seed)
+    import learners
+    return learners.make(GBM_KIND, seed)
 
 
 def make_ridge():
@@ -177,8 +195,12 @@ def fit_learners(train: pd.DataFrame, features: list[str], hzn: int, seed: int =
     w = _sample_weights(train)
     n_seeds = N_SEEDS[hzn] if isinstance(N_SEEDS, dict) else N_SEEDS
     seed += SEED_OFFSET
+    # Rows arrive sorted by date: the per-date run lengths are the query groups a ranking loss needs
+    dates = train.index.get_level_values("date").to_numpy()
+    change = np.flatnonzero(dates[1:] != dates[:-1]) + 1
+    groups = np.diff(np.concatenate([[0], change, [len(dates)]])).tolist()
     if w is None:
-        gbms = [make_gbm(seed * 100 + k).fit(Xtr, ytr) for k in range(n_seeds)]
+        gbms = [make_gbm(seed * 100 + k).fit(Xtr, ytr, groups) for k in range(n_seeds)]
     else:
         # Boosted trees with sample weights re-bin every feature by weighted
         # percentiles, which is very slow in scikit-learn; a weighted subsample
@@ -594,6 +616,8 @@ def feature_importance(final: dict[int, dict], panel: pd.DataFrame, features: li
     gbm = final[hzn]["gbm"]
     if isinstance(gbm, SeedBag):
         gbm = gbm.models[0]
+    if hasattr(gbm, "model") and hasattr(gbm.model, "predict"):
+        gbm = gbm.model
     imp = permutation_importance(gbm, X, y, n_repeats=3, random_state=0, scoring="neg_mean_squared_error")
     order = np.argsort(-imp.importances_mean)[:15]
     total = float(np.sum(np.clip(imp.importances_mean, 0, None))) or 1.0
