@@ -1238,6 +1238,196 @@
     return cols;
   }
 
+  function niceStep(x) {
+    var p = Math.pow(10, Math.floor(Math.log(x) / Math.LN10)), f = x / p;
+    return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p;
+  }
+
+  function methodExplainer(k, m, cur) {
+    var p0 = function (v) { return pct(v, 0, false); }, p1 = function (v) { return pct(v, 1, false); };
+    if (k === "comps") {
+      var legs = Object.keys(m.legs || {}).map(function (lk) { var L = m.legs[lk]; return L.label.split(" ×")[0] + " " + num(L.peerMedian, 1) + "× (" + L.peerGroup + ")"; });
+      return "Peers' median multiples applied to this company's numbers: " + legs.join("; ") + (m.caveat ? ". " + m.caveat : "") + ".";
+    }
+    if (k === "dcf") return "Free cash flow to the firm of " + compact(m.ufcf0, cur) + " growing " + p0(m.growth3y) + " a year for three years, fading to " + p1(m.terminalGrowth) + ", discounted at a " + p1(m.discountRate) + " WACC; " + Math.round((m.terminalShare || 0) * 100) + "% of the value sits in the terminal value" + (m.exitValue ? "; selling at " + num(m.exitMultiple, 1) + "× EBITDA in year ten would give " + money(m.exitValue, cur) : "") + (m.caveat ? ". " + m.caveat.charAt(0).toUpperCase() + m.caveat.slice(1) : "") + ".";
+    if (k === "residual") return "Book value " + money(m.bookValue, cur) + " a share plus the present value of returns above the " + p1(m.costOfEquity) + " cost of equity, with return on equity fading from " + p0(m.roe) + " to " + p0(m.roeEnd) + " as competition catches up.";
+    if (k === "ddm") return "Dividend of " + money(m.dividend, cur) + " growing " + p1(m.growth5y) + " a year for five years, then " + p1(m.terminalGrowth) + ", discounted at the " + p1(m.costOfEquity) + " cost of equity.";
+    if (k === "lbo") return "A financial buyer borrowing " + num(m.leverage, 1) + "× EBITDA, paying it down for " + m.years + " years and selling at " + num(m.exitMultiple, 1) + "× EBITDA could pay " + money(m.low, cur) + "–" + money(m.high, cur) + " and still earn 25–20% a year" + (m.irrAtPrice != null ? "; at today's price the return would be " + pct(m.irrAtPrice, 0) + " a year" : "") + ". A floor, not a fair value.";
+    if (k === "precedent") return "A 20–40% control premium on the comparables: what an acquirer, rather than the market, might pay. There is no free database of actual deal multiples.";
+    if (k === "analysts") return m.analysts + " analysts' mean 12-month target; their range runs " + money(m.low, cur) + "–" + money(m.high, cur) + ".";
+    return "";
+  }
+
+  function footballField(fv, price, cur) {
+    var bars = (fv.field || []).filter(function (b) { return b.low != null && b.high != null && b.low > 0 && b.high > 0; });
+    if (!bars.length || !price) return null;
+    var vals = [price * 0.85, price * 1.15];
+    if (fv.value) vals.push(fv.value);
+    bars.forEach(function (b) { vals.push(b.low, b.high); });
+    var lo = Math.max(Math.min.apply(null, vals), price * 0.2), hi = Math.min(Math.max.apply(null, vals), price * 3);
+    var pad = (hi - lo) * 0.05; lo -= pad; hi += pad;
+    var X = function (v) { return Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100)); };
+    var box = el("div", { class: "ff", role: "img", "aria-label": "Valuation ranges by method against the price" });
+    bars.forEach(function (b) {
+      var row = el("div", { class: "ff__row" + (b.leg ? " ff__row--leg" : "") + (b.inBlend ? " ff__row--blend" : "") + (b.dropped ? " ff__row--dropped" : "") });
+      row.appendChild(el("span", { class: "ff__label", text: b.label }));
+      var track = el("div", { class: "ff__track" });
+      var l = X(b.low), r = X(b.high);
+      track.appendChild(el("div", { class: "ff__bar" + (b.low < lo ? " ff__bar--clipl" : "") + (b.high > hi ? " ff__bar--clipr" : ""), style: "left:" + l + "%;width:" + Math.max(r - l, 0.8) + "%" }));
+      if (b.mid != null) track.appendChild(el("span", { class: "ff__mid", style: "left:" + X(b.mid) + "%" }));
+      track.appendChild(el("span", { class: "ff__line ff__line--price", style: "left:" + X(price) + "%" }));
+      if (fv.value) track.appendChild(el("span", { class: "ff__line ff__line--value", style: "left:" + X(fv.value) + "%" }));
+      row.appendChild(track);
+      row.appendChild(el("span", { class: "ff__range", text: money(b.low, cur, 0) + " – " + money(b.high, cur, 0) }));
+      box.appendChild(row);
+    });
+    var ax = el("div", { class: "ff__axis" }), step = niceStep((hi - lo) / 5);
+    for (var v = Math.ceil(lo / step) * step; v <= hi; v += step) ax.appendChild(el("span", { class: "ff__tick", style: "left:" + X(v) + "%", text: money(v, cur, step >= 1 ? 0 : 2) }));
+    box.appendChild(el("div", { class: "ff__row ff__row--axis" }, el("span"), ax, el("span")));
+    var legend = el("p", { class: "ff__legend" },
+      el("span", { class: "ff__key ff__key--blend", text: "blended into the fair value" }),
+      el("span", { class: "ff__key ff__key--ref", text: "reference only" }),
+      el("span", { class: "ff__key ff__key--price", text: "price " + money(price, cur) }),
+      fv.value ? el("span", { class: "ff__key ff__key--value", text: "fair value " + money(fv.value, cur) }) : null);
+    return el("div", { class: "card card--wide" }, el("p", { class: "card__title", text: "Football field" }),
+      el("p", { class: "muted small", text: "The chart a bank's valuation summary opens with: one bar per method, from its low case to its high case, with the tick marking its point estimate. Bars that run off the edge are cut at a fifth and three times the price." }),
+      box, legend);
+  }
+
+  function kvRow(label, value, sub) {
+    return el("tr", {}, el("th", { scope: "row", text: label }), el("td", {}, value, sub ? el("small", { text: sub }) : null));
+  }
+
+  function costOfCapitalCard(cc) {
+    var p = function (v, d) { return pct(v, d == null ? 1 : d, false); };
+    var rows = [
+      kvRow("Risk-free rate", p(cc.riskFree, 2), "the 10-year US Treasury yield at the last run"),
+      kvRow("Beta", num(cc.betaRaw, 2) + " → " + num(cc.betaAdjusted, 2), "raw, then Blume-adjusted (two thirds raw, one third 1.0): betas drift toward the market's over time"),
+      kvRow("Equity risk premium", p(cc.equityPremium), "the extra return demanded for stocks over Treasuries"),
+      kvRow("Cost of equity", p(cc.costOfEquity), "risk-free + adjusted beta × premium (CAPM)"),
+    ];
+    if (cc.financial) {
+      rows.push(kvRow("Discount rate", el("b", { text: p(cc.costOfEquity) }), "a bank's deposits are its raw material, not financing, so only the cost of equity applies"));
+    } else {
+      rows.push(kvRow("Cost of debt", p(cc.costOfDebt) + " → " + p(cc.costOfDebtAfterTax), "risk-free + " + p(cc.creditSpread) + " credit spread for " + (cc.debtToEbitda != null ? num(cc.debtToEbitda, 1) + "× debt to EBITDA" : "unknown leverage") + ", then the " + p(cc.taxRate, 0) + " tax shield"));
+      rows.push(kvRow("Capital structure", p(cc.equityWeight, 0) + " equity, " + p(cc.debtWeight, 0) + " debt", "at market values"));
+      rows.push(kvRow("WACC", el("b", { text: p(cc.wacc) }), "the weighted average: what the whole firm's cash flows are discounted at"));
+    }
+    rows.push(kvRow("Terminal growth", p(cc.terminalGrowth), "nominal growth assumed for ever after year ten"));
+    return el("div", { class: "card" }, el("p", { class: "card__title", text: "Cost of capital" }), el("table", { class: "kv" }, el("tbody", {}, rows)));
+  }
+
+  function dcfCard(m, fv, cur, price) {
+    var card = el("div", { class: "card" }, el("p", { class: "card__title", text: "Discounted cash flow" }));
+    if (m.skipped) {
+      card.appendChild(el("p", { class: "record-empty", text: "Not applicable: " + m.skipped + "." }));
+      if (m.ufcfFromEbit != null || m.ufcfFromFcf != null) card.appendChild(el("p", { class: "muted small", text: "This year's free cash flow to the firm reads " + compact(m.ufcfFromEbit, cur) + " from the operating build-up and " + compact(m.ufcfFromFcf, cur) + " from the cash-flow statement." }));
+      return card;
+    }
+    var inp = fv.inputs || {}, p = function (v, d) { return pct(v, d == null ? 1 : d, false); };
+    var basis = m.basis === "both" ? "the average of the operating build-up (" + compact(m.ufcfFromEbit, cur) + ": EBIT less tax, plus depreciation, less capital spending) and the cash-flow statement (" + compact(m.ufcfFromFcf, cur) + ": free cash flow plus after-tax interest)"
+      : m.basis === "ebit" ? "from the operating build-up: EBIT less tax, plus depreciation, less capital spending (the cash-flow statement reading was negative)"
+        : "from the cash-flow statement: free cash flow plus after-tax interest (the operating build-up was wiped out by a one-off)";
+    card.appendChild(el("table", { class: "kv" }, el("tbody", {},
+      kvRow("Free cash flow to the firm", compact(m.ufcf0, cur), basis),
+      kvRow("Revenue growth", p(m.growth3y, 0) + " a year", "for three years, then a straight fade to " + p(m.terminalGrowth) + " by year ten; the cash margin of " + p(m.cashMargin) + " of revenue is held constant"),
+      kvRow("Ten years of cash flow", compact(m.pvFlows, cur), "present value, discounted mid-year at " + p(m.discountRate)),
+      kvRow("Terminal value", compact(m.pvTerminal, cur), "present value of a " + p(m.terminalGrowth) + " perpetuity after year ten: " + Math.round((m.terminalShare || 0) * 100) + "% of the total"),
+      kvRow("Enterprise value", compact(m.enterpriseValue, cur), "less debt " + compact(inp.totalDebt, cur) + ", plus cash " + compact(inp.totalCash, cur)),
+      kvRow("Equity value", compact(m.equityValue, cur), "over " + compact(inp.dilutedShares) + " diluted shares (the market value divided by the price, which counts every share class)"),
+      kvRow("Per share", el("b", { text: money(m.value, cur) }), m.exitValue ? "or " + money(m.exitValue, cur) + " selling the business at the peers' " + num(m.exitMultiple, 1) + "× EBITDA in year ten instead of the perpetuity" : null))));
+    if (m.caveat) card.appendChild(el("p", { class: "muted small", text: m.caveat.charAt(0).toUpperCase() + m.caveat.slice(1) + "." }));
+    var S = m.sensitivity;
+    if (S && S.values) {
+      var head = el("tr", {}, el("th", { text: "WACC \\ growth" }));
+      S.growth.forEach(function (g) { head.appendChild(el("th", { text: p(g) })); });
+      var body = S.values.map(function (rowVals, i) {
+        var tr = el("tr", {}, el("th", { scope: "row", text: p(S.wacc[i]) }));
+        rowVals.forEach(function (v, j) {
+          var cls = (i === 1 && j === 1 ? "is-base " : "") + (v == null || !price ? "" : v >= price ? "is-up" : "is-down");
+          tr.appendChild(el("td", { class: cls, text: money(v, cur, 0) }));
+        });
+        return tr;
+      });
+      card.appendChild(el("p", { class: "card__title", style: "margin-top:.9rem", text: "Sensitivity" }));
+      card.appendChild(el("table", { class: "sens" }, el("thead", {}, head), el("tbody", {}, body)));
+      card.appendChild(el("p", { class: "muted small", text: "Value per share for a point either side of the WACC and half a point either side of the terminal growth: the range the football field shows. Green cells sit above the price, red below." }));
+    }
+    if (m.flows && m.flows.length) {
+      var det = el("details", { class: "proj" }, el("summary", { text: "Ten-year projection" }));
+      det.appendChild(el("table", { class: "record-table" }, el("thead", {}, el("tr", {}, el("th", { text: "Year" }), el("th", { text: "Growth" }), el("th", { text: "Revenue" }), el("th", { text: "Free cash flow to the firm" }))),
+        el("tbody", {}, m.flows.map(function (f) { return el("tr", {}, el("td", { text: f.year }), el("td", { text: p(f.growth) }), el("td", { text: compact(f.revenue, cur) }), el("td", { text: compact(f.ufcf, cur) })); }))));
+      card.appendChild(det);
+    }
+    return card;
+  }
+
+  function residualCard(m, ddm, cur) {
+    var card = el("div", { class: "card" }, el("p", { class: "card__title", text: "Residual income" }));
+    if (m.skipped) { card.appendChild(el("p", { class: "record-empty", text: "Not applicable: " + m.skipped + "." })); return card; }
+    var p = function (v, d) { return pct(v, d == null ? 1 : d, false); };
+    card.appendChild(el("table", { class: "kv" }, el("tbody", {},
+      kvRow("Book value per share", money(m.bookValue, cur), "what the shareholders own today; a bank is its balance sheet"),
+      kvRow("Return on equity", p(m.roe, 0) + " → " + p(m.roeEnd, 0), "today's, fading over ten years to half way between it and the cost of equity: competition erodes excess returns but a franchise keeps some"),
+      kvRow("Cost of equity", p(m.costOfEquity), "the hurdle: returns above it create value, below it destroy it"),
+      kvRow("Payout", p(m.payout, 0), "of earnings paid out; the rest compounds the book value"),
+      kvRow("Residual income, ten years", money(m.pvResidual, cur), "present value of (return on equity − cost of equity) × book value, each year"),
+      kvRow("Terminal", money(m.pvTerminal, cur), "the year-ten excess return capitalised at " + p(m.costOfEquity) + " less 2.5% growth"),
+      kvRow("Per share", el("b", { text: money(m.value, cur) }), "book value + both present values"))));
+    if (ddm && !ddm.skipped) {
+      card.appendChild(el("p", { class: "card__title", style: "margin-top:.9rem", text: "Dividend discount cross-check" }));
+      card.appendChild(el("table", { class: "kv" }, el("tbody", {},
+        kvRow("Dividend", money(ddm.dividend, cur) + " a share", "growing " + p(ddm.growth5y) + " a year (return on equity × retention) for five years, then " + p(ddm.terminalGrowth)),
+        kvRow("Per share", el("b", { text: money(ddm.value, cur) }), "the dividends alone, discounted at " + p(ddm.costOfEquity) + "; low when a company retains most of its earnings"))));
+    }
+    return card;
+  }
+
+  function compsCard(m, cur) {
+    var legs = Object.keys(m.legs || {}).map(function (k) { return m.legs[k]; });
+    var head = el("tr", {}, el("th", { text: "Multiple" }), el("th", { text: "Peers" }), el("th", { text: "25th" }), el("th", { text: "Median" }), el("th", { text: "75th" }), el("th", { text: "Implied" }));
+    var body = legs.map(function (L) {
+      return el("tr", {}, el("td", { text: L.label.split(" ×")[0] }), el("td", { class: "comps__group", text: L.peerGroup }),
+        el("td", { text: num(L.peerP25, 1) + "×" }), el("td", { text: num(L.peerMedian, 1) + "×" }), el("td", { text: num(L.peerP75, 1) + "×" }),
+        el("td", {}, el("b", { text: money(L.mid, cur, 0) }), el("small", { text: money(L.low, cur, 0) + "–" + money(L.high, cur, 0) })));
+    });
+    var card = el("div", { class: "card" }, el("p", { class: "card__title", text: "Trading comparables" }),
+      el("table", { class: "record-table comps" }, el("thead", {}, head), el("tbody", {}, body)));
+    var weights = legs.map(function (L) { return L.label.split(" ×")[0] + " " + Math.round(L.weight / legs.reduce(function (a, x) { return a + x.weight; }, 0) * 100) + "%"; });
+    card.appendChild(el("p", { class: "muted small", text: "The closest peer group with at least three members (the industry, else the sector, else every stock tracked) sets the quartiles; a multiple times this company's own figure gives the implied price, and an enterprise-value multiple is bridged to equity by subtracting debt and adding cash. Legs are blended geometrically, weighted " + weights.join(", ") + ". Peers are drawn from the S&P 500 and the FTSE MIB." + (m.caveat ? " " + m.caveat.charAt(0).toUpperCase() + m.caveat.slice(1) + "." : "") }));
+    return card;
+  }
+
+  function crossChecksCard(methods, fv, cur) {
+    var card = el("div", { class: "card" }, el("p", { class: "card__title", text: "Buyout and takeover cross-checks" }));
+    var p = function (v, d) { return pct(v, d == null ? 1 : d, false); };
+    var L = methods.lbo;
+    if (L && !L.skipped) {
+      card.appendChild(el("p", { class: "card__title", style: "margin-top:.25rem", text: "Leveraged buyout" }));
+      card.appendChild(el("table", { class: "kv" }, el("tbody", {},
+        kvRow("Debt raised", num(L.leverage, 1) + "× EBITDA", compact(L.newDebt, cur) + " at " + p(L.loanRate) + ", paid down from cash flow over " + L.years + " years; revenue grows " + p(L.growth, 0) + " a year at today's margin"),
+        kvRow("Exit", num(L.exitMultiple, 1) + "× EBITDA", "the lower of today's and the peers' multiple, on year-" + L.years + " EBITDA of " + compact(L.ebitdaExit, cur) + "; " + compact(L.debtAtExit, cur) + " of debt is still outstanding"),
+        kvRow("Sponsor's equity at exit", compact(L.exitEquity, cur), "exit value less the remaining debt, plus cash built up"),
+        kvRow("Price a buyer could pay", money(L.low, cur, 0) + " · " + money(L.value, cur, 0) + " · " + money(L.high, cur, 0), "for a 25%, 22.5% or 20% annual return on their equity"),
+        L.irrAtPrice != null ? kvRow("Return at today's price", el("b", { text: pct(L.irrAtPrice, 0) + " a year" }), L.irrAtPrice >= 0.2 ? "a private-equity firm could make the numbers work at this price" : L.irrAtPrice >= 0.1 ? "below what a financial buyer needs: the market already pays for more than the cash flows" : "a buyout is out of the question at this price") : null)));
+    } else if (L && L.skipped) {
+      card.appendChild(el("p", { class: "muted small", text: "Leveraged buyout: not applicable, " + L.skipped + "." }));
+    }
+    var P = methods.precedent;
+    if (P) {
+      card.appendChild(el("p", { class: "card__title", style: "margin-top:.9rem", text: "Precedent transactions" }));
+      card.appendChild(el("table", { class: "kv" }, el("tbody", {},
+        kvRow("Control premium", money(P.low, cur, 0) + " · " + money(P.value, cur, 0) + " · " + money(P.high, cur, 0), "the comparables' value plus the 20%, 30% or 40% premium acquirers typically pay over the market price. A stand-in: there is no free database of actual deal multiples"))));
+    }
+    var D = methods.ddm;
+    if (D && !D.skipped && !methods.residual) {
+      card.appendChild(el("p", { class: "card__title", style: "margin-top:.9rem", text: "Dividend discount" }));
+      card.appendChild(el("table", { class: "kv" }, el("tbody", {},
+        kvRow("Dividends alone", money(D.value, cur), money(D.dividend, cur) + " a share growing " + p(D.growth5y) + " a year for five years, then " + p(D.terminalGrowth) + ", discounted at the " + p(D.costOfEquity) + " cost of equity; what the stock is worth as a bond-like income stream"))));
+    }
+    return card;
+  }
+
   function fundamentalsSection(t, d) {
     var f = d.fundamentals || {}, info = f.info || {}, fv = f.fairValue || {}, det = (f.score && f.score.details) || {};
     var cols = el("div", { class: "two-col" });
@@ -1246,39 +1436,53 @@
       return el("tr", {}, el("th", { scope: "row", text: label }), el("td", {}, value, sub ? el("small", { text: sub }) : null));
     }
     function x(v, digits) { return v == null ? "–" : num(v, digits == null ? 1 : digits) + "×"; }
-    var peers = (f.peers && f.peers.medians) || {};
+    var peerSet = f.peers || {};
+    var peers = (peerSet.industryMedians && Object.keys(peerSet.industryMedians).length ? peerSet.industryMedians : peerSet.medians) || {};
+    var peerName = peerSet.industryMedians && Object.keys(peerSet.industryMedians).length ? (peerSet.industry || "industry") + " median" : (peerSet.sector || "sector") + " median";
 
-    // Fair value card
+    // Fair value card: the blend and every method's verdict
     var fvCard = el("div", { class: "card" }, el("p", { class: "card__title", text: "Fair value" }));
-    var methodKeys = Object.keys(fv.methods || {});
+    var methods = fv.methods || {};
+    var methodOrder = ["comps", "dcf", "residual", "analysts", "precedent", "lbo", "ddm"].filter(function (k) { return methods[k]; });
     if (fv.value) {
       fvCard.appendChild(el("div", { class: "fv-hero" }, el("b", { text: money(fv.value, cur) }), delta(fv.marginOfSafety, 0, 0.005), el("span", { class: "muted small", text: "vs " + money(d.price, cur) }), d.view12m ? stance(d.view12m.label) : null));
     } else {
       fvCard.appendChild(el("p", { class: "record-empty", text: fv.note || "Not enough data to estimate a fair value." }));
     }
-    if (methodKeys.length) {
+    if (fv.currencyNote) fvCard.appendChild(el("p", { class: "muted small", text: fv.currencyNote }));
+    if (methodOrder.length) {
       var ul = el("ul", { class: "fv-methods" });
-      var weights = { earnings: 0.4, dcf: 0.35, book: 0.35, analysts: 0.25 };
-      var total = 0; methodKeys.forEach(function (k) { if (!fv.methods[k].dropped) total += weights[k] || 0; });
-      methodKeys.forEach(function (k) {
-        var m = fv.methods[k], extra = "";
-        if (k === "earnings") extra = "Forward EPS " + money(fv.inputs.forwardEps, cur) + " × " + num(m.justifiedPE, 1) + " (peers pay " + (m.peerPE ? num(m.peerPE, 1) : "–") + ", growth justifies " + num(m.growthPE, 1) + ")";
-        if (k === "dcf") extra = "Free cash flow growing " + pct(m.growth5y, 0, false) + " a year for five years, fading to " + pct(m.terminalGrowth, 1, false) + ", discounted at " + pct(m.discountRate, 1, false);
-        if (k === "book") extra = "Book value " + money(fv.inputs.bookValue, cur) + " per share × peers' price-to-book " + num(m.peerPB, 2);
-        if (k === "analysts") extra = m.analysts + " analysts' mean 12-month target";
-        var use = m.dropped === "implausible" ? "not used: too far from the price to be real" : m.dropped === "outlier" ? "not used: too far from the other methods" : fv.value && total ? "weight " + Math.round((weights[k] || 0) / total * 100) + "%" : "";
-        ul.appendChild(el("li", { class: m.dropped ? "is-dropped" : "" }, el("span", { style: "grid-column:1", text: m.label + (use ? " · " + use : "") }), el("b", { text: money(m.value, cur) }), el("span", { text: extra })));
+      methodOrder.forEach(function (k) {
+        var m = methods[k];
+        if (m.skipped) {
+          ul.appendChild(el("li", { class: "is-skipped" }, el("span", { style: "grid-column:1", text: m.label + " · not applicable" }), el("b", { text: "–" }), el("span", { text: m.skipped })));
+          return;
+        }
+        var use = m.dropped ? "set aside: more than five times from the price, so the data or the assumptions don't fit this company"
+          : m.inBlend && m.weight ? "weight " + Math.round(m.weight * 100) + "%" : "reference, not blended";
+        ul.appendChild(el("li", { class: m.dropped ? "is-dropped" : m.inBlend ? "" : "is-ref" },
+          el("span", { style: "grid-column:1", text: m.label + " · " + use }), el("b", { text: money(m.value, cur) }), el("span", { text: methodExplainer(k, m, cur) })));
       });
       fvCard.appendChild(ul);
     }
     cols.appendChild(fvCard);
 
+    var ff = footballField(fv, d.price, cur);
+    if (ff) cols.appendChild(ff);
+    var cc = fv.costOfCapital;
+    if (cc) cols.appendChild(costOfCapitalCard(cc));
+    if (methods.dcf) cols.appendChild(dcfCard(methods.dcf, fv, cur, d.price));
+    if (methods.residual) cols.appendChild(residualCard(methods.residual, methods.ddm, cur));
+    if (methods.comps) cols.appendChild(compsCard(methods.comps, cur));
+    if (methods.lbo || methods.precedent || (methods.ddm && !methods.residual)) cols.appendChild(crossChecksCard(methods, fv, cur));
+
     cols.appendChild(el("div", { class: "card" }, el("p", { class: "card__title", text: "Valuation" }), el("table", { class: "kv" }, el("tbody", {},
-      row("Price / earnings", x(info.trailingPE), peers.trailingPE ? "sector median " + x(peers.trailingPE) : null),
-      row("Forward P/E", x(info.forwardPE), peers.forwardPE ? "sector median " + x(peers.forwardPE) : null),
+      row("Price / earnings", x(info.trailingPE), peers.trailingPE ? peerName + " " + x(peers.trailingPE) : null),
+      row("Forward P/E", x(info.forwardPE), peers.forwardPE ? peerName + " " + x(peers.forwardPE) : null),
       row("PEG", x(det.peg, 2), "P/E per point of growth"),
-      row("Price / book", x(info.priceToBook, 2), peers.priceToBook ? "sector median " + x(peers.priceToBook, 2) : null),
-      row("EV / EBITDA", x(info.enterpriseToEbitda), peers.enterpriseToEbitda ? "sector median " + x(peers.enterpriseToEbitda) : null),
+      row("Price / book", x(info.priceToBook, 2), peers.priceToBook ? peerName + " " + x(peers.priceToBook, 2) : null),
+      row("EV / EBITDA", x(info.enterpriseToEbitda), peers.enterpriseToEbitda ? peerName + " " + x(peers.enterpriseToEbitda) : null),
+      row("EV / Sales", x(info.enterpriseToRevenue, 2), peers.enterpriseToRevenue ? peerName + " " + x(peers.enterpriseToRevenue, 2) : null),
       row("Price / sales", x(info.priceToSalesTrailing12Months)),
       row("Dividend yield", d.view12m ? pct(d.view12m.dividendYield, 2, false) : "–"),
       row("Market cap", compact(info.marketCap, cur), info.enterpriseValue ? "enterprise value " + compact(info.enterpriseValue, cur) : null)))));
@@ -1547,10 +1751,19 @@
     }
 
     box.appendChild(section("Fundamentals and the scores"));
-    box.appendChild(el("p", { text: "Fundamentals move slowly, so they say little about next week but are the only thing that says anything about next year. Three classic methods are blended into a fair value: earnings power (next year's expected earnings times a justified price/earnings ratio, half from what the market pays the company's sector peers here and half from its own expected growth), a ten-year discounted cash flow (free cash flow growing at the recent revenue growth rate, fading to 2.5%, discounted at a rate that rises with the stock's beta, plus net cash), and the analysts' mean target when at least four cover the stock. Banks and insurers use book value instead of cash flow. The methods are blended geometrically, so one generous estimate can't dominate, and a method that lands more than five times away from the price is set aside as a data error or a method that doesn't apply to that company (each stock's page shows which, and why). The 12-month view assumes half of the gap to fair value closes within a year, plus the dividend; it is not backtested, which is why it sits apart from the model's forecasts and why the track record grades it separately." }));
+    box.appendChild(el("p", { text: "Fundamentals move slowly, so they say little about next week but are the only thing that says anything about next year. The fair value is built the way an investment bank builds a valuation: several independent methods, each with a range, laid out on one chart (the football field) and reconciled into one number. Every input, assumption and intermediate figure is on the stock's Fundamentals tab." }));
+    box.appendChild(el("ul", { class: "method-list" },
+      el("li", {}, el("b", { text: "Trading comparables. " }), "What the market pays for the closest peers (the company's industry when at least three are tracked, else its sector, else everyone) per unit of next year's earnings, EBITDA, sales or book value, applied to the company's own figures. The peer quartiles give the range, the median the point; an enterprise-value multiple is bridged to a share price by subtracting debt and adding cash. Peers are the whole S&P 500 plus the FTSE MIB, kept in a store that refreshes a few dozen profiles each run. Banks and insurers are compared on price to book and forward earnings only, since their enterprise value means nothing."),
+      el("li", {}, el("b", { text: "Discounted cash flow at the WACC. " }), "This year's free cash flow to the firm (the average of EBIT less tax plus depreciation less capital spending, and free cash flow plus after-tax interest; when a one-off wipes one out, the other stands in) grows with revenue for three years at the recent rate, capped at 15% and at ten points above the analysts' expected earnings growth, then fades to 2.5% by year ten, at a constant cash margin. The flows are discounted mid-year at a weighted average cost of capital assembled from the day's 10-year Treasury yield, a Blume-adjusted beta, a 5% equity risk premium, a credit spread that widens with leverage, the 23% tax shield and market-value weights. The terminal value is a 2.5% perpetuity, cross-checked by selling the business at the peers' EV/EBITDA, and a grid of ±1 point of WACC by ±0.5 point of growth gives the range. Not used for banks, whose deposits are raw material rather than financing."),
+      el("li", {}, el("b", { text: "Residual income and dividends, for financials. " }), "Book value per share plus the present value of returns above the cost of equity, with return on equity fading over ten years to half way between today's and the cost of equity and the remainder capitalised. A two-stage dividend discount model sits next to it as a cross-check for any company paying out at least 35% of earnings."),
+      el("li", {}, el("b", { text: "Leveraged buyout. " }), "What a private-equity buyer could pay: borrow 5.5× EBITDA (never more than 70% of the price), run the company five years paying the debt down from cash flow, sell at the lower of today's and the peers' multiple, and back out the entry price that returns 25%, 22.5% or 20% a year on the sponsor's equity. Shown as a floor, together with the return a buyer would earn at today's price; never blended."),
+      el("li", {}, el("b", { text: "Precedent transactions. " }), "There is no free database of deal multiples, so the 20–40% control premium acquirers typically pay is applied to the comparables as a takeover reference. Display only."),
+      el("li", {}, el("b", { text: "Analyst targets and the 52-week range. " }), "The mean target is a method in the blend when at least four analysts cover the stock; the low–high range and the year's trading range are reference bars.")));
+    box.appendChild(el("p", { text: "The point estimate is a weighted geometric mean of the comparables (40%), the cash-flow or residual-income model (35%) and the analysts (25%), so one generous method can't dominate, with two sanity rules: a method that lands more than five times from the price is set aside as a data error or a method that doesn't apply to that company (the stock's page shows which, and why), and once anything was set aside a single survivor isn't enough for a number. A sum of the parts, the method banks use for conglomerates, needs segment accounts that aren't free, so a conglomerate without a usable book value gets reference bars but no point estimate. Figures reported in another currency than the share's are converted at the day's rate. The 12-month view assumes half of the gap to fair value closes within a year, plus the dividend; it is not backtested, which is why it sits apart from the model's forecasts and why the track record grades it separately." }));
     box.appendChild(el("p", { text: "The fundamental score (0–100) weighs valuation 35%, quality 25% (margins, return on equity, cash conversion), growth 20%, safety 10% (debt, liquidity, beta) and analyst sentiment 10%. The chart score weighs trend 30%, momentum 30%, oscillators 15%, volume 15% and volatility 10%. The overall score is 45% model, 35% fundamentals and 20% chart; funds have no fundamentals, so theirs is model and chart only. None of it is advice: the scores summarise evidence, they don't know your situation." }));
 
     box.appendChild(section("Data and refresh"));
+    if (s.valuation) box.appendChild(el("p", { text: "The comparables draw on " + (s.valuation.peerProfiles || 0) + " company profiles (the S&P 500 and the FTSE MIB, with the tracked stocks refreshed every run and the rest sixty per run). The last run used a " + pct(s.valuation.riskFree, 2, false) + " risk-free rate (the 10-year Treasury yield), a " + pct(s.valuation.equityPremium, 1, false) + " equity risk premium, a " + pct(s.valuation.taxRate, 0, false) + " tax rate and " + pct(s.valuation.terminalGrowth, 1, false) + " terminal growth." }));
     box.appendChild(el("p", { text: "Prices and company data come from Yahoo Finance and are refreshed automatically during US and European trading hours and after each close (the time of the last run is at the top of the page). The stock model is retrained every day after the US close on " + (m.universeSize || "about 200") + " stocks, and the markets model on " + (mm.instruments || "the tracked") + " instruments; the latest models were trained through " + dateLong(m.trainedThrough) + ". The whole thing runs on GitHub Actions and publishes plain JSON files that this page reads; the code is in the blog's repository under tools/stocks." }));
     box.appendChild(el("p", { text: "Prices on the page update in real time while you have it open: the browser subscribes to Yahoo Finance's public price stream for the tracked symbols, with no key and no server in between, and the indicator in the top corner says whether the stream is connected. The forecasts, scores and fundamentals change only when a data run completes." }));
     box.appendChild(el("p", {}, el("a", { href: "#/", text: "← Back to the overview" })));

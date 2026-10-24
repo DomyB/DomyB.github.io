@@ -52,9 +52,10 @@ import models  # noqa: E402
 import features  # noqa: E402
 import markets  # noqa: E402
 import altdata  # noqa: E402
-from datafeed import CONTEXT_SYMBOLS, download_prices, fetch_all_info, market_session_state  # noqa: E402
+import valuation  # noqa: E402
+from datafeed import CONTEXT_SYMBOLS, download_prices, fetch_all_info, fetch_info, market_session_state  # noqa: E402
 from features import HORIZON_LABELS, HORIZONS, build_panel, context_features, indicators  # noqa: E402
-from fundamentals import fair_value, fundamental_score, fundamental_view, sector_medians  # noqa: E402
+from fundamentals import fair_value, fundamental_score, fundamental_view  # noqa: E402
 from signals import technical_readings, technical_score  # noqa: E402
 from universe import SECTOR, SECTOR_ETFS, TRAINING_ONLY  # noqa: E402
 
@@ -500,7 +501,20 @@ def main():
             elif prev_info:
                 infos[sym] = dict(prev_info, stale=True, incomplete=True)
                 log.warning("only an incomplete profile is available for %s", sym)
-    medians = sector_medians(infos)
+    # Peers for the comparables: every S&P 500 member plus the FTSE MIB, kept in a
+    # store that refreshes a few dozen profiles per run (the tracked stocks' own
+    # profiles above are always fresh and take precedence)
+    peer_store = valuation.load_peer_store(args.prev)
+    if not args.skip_fundamentals:
+        membership_csv = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "membership.csv")
+        peer_store = valuation.refresh_peer_store(peer_store, valuation.peer_universe(membership_csv, tracked), now,
+                                                  lambda s: (time.sleep(0.3), fetch_info(s))[1])
+        log.info("peer store: %d profiles, %d refreshed this run", len(valuation.peer_infos(peer_store)), peer_store.get("refreshed", 0))
+    peers = valuation.peer_groups({**valuation.peer_infos(peer_store), **infos})
+    medians = valuation.medians_from(peers)
+    fx_rates = {s.replace("=X", ""): float(prices[s]["close"].iloc[-1]) for s in prices if s.endswith("=X") and len(prices[s])}
+    tnx = prices.get(CONTEXT_SYMBOLS["rates"])
+    risk_free = float(tnx["close"].iloc[-1]) / 100.0 if tnx is not None and len(tnx) else None
 
     # 6. Ledger
     ledger = (read_prev(args.prev, "ledger.json.gz") or {}).get("entries", [])
@@ -546,7 +560,7 @@ def main():
                              "drift": r.drift, "z": r.z}
         readings, parts = technical_readings(row)
         tscore = technical_score(parts)
-        fv = fair_value(info, close, medians) if not no_fundamentals else {"methods": {}, "inputs": {}}
+        fv = fair_value(info, close, peers, risk_free, fx_rates) if not no_fundamentals else {"methods": {}, "inputs": {}}
         fscore = fundamental_score(info, close, medians, fv) if not no_fundamentals else {}
         view = fundamental_view(fv, info, close) if fv.get("value") else None
         mscore = model_score(fcs)
@@ -620,7 +634,11 @@ def main():
                                                               "rank_mom12_1", "rank_ret21", "rank_vol21")}},
             "fundamentals": None if is_market else {
                 "info": info, "fairValue": fv, "score": fscore, "view12m": view,
-                "peers": {"sector": info.get("sector"), "medians": medians.get(info.get("sector") or "_", {}),
+                "peers": {"sector": info.get("sector"), "industry": info.get("industry"),
+                          "medians": medians.get(info.get("sector") or "_", {}),
+                          "industryMedians": medians.get("industry:" + info["industry"], {}) if info.get("industry") else {},
+                          "industryN": (peers.get("industry:" + info["industry"], {}).get("forwardPE") or {}).get("n") if info.get("industry") else None,
+                          "sectorN": (peers.get(info.get("sector") or "_", {}).get("forwardPE") or {}).get("n"),
                           "all": medians.get("_all", {})}},
             "ledger": {"resolved": [e for e in sym_ledger if e.get("resolved")][-400:],
                        "pending": [e for e in sym_ledger if not e.get("resolved")]},
@@ -642,6 +660,9 @@ def main():
                                "drift": {str(h): mfinal[h]["drift"] for h in HORIZONS if h in mfinal},
                                "calibration": {str(h): {"slope": mcal[h]["slope"]} for h in HORIZONS if h in mcal},
                                "backtestGeneratedAt": mbt.get("generatedAt")} if msyms and 21 in mfinal else None)},
+        "valuation": {"riskFree": risk_free, "equityPremium": valuation.EQUITY_PREMIUM, "taxRate": valuation.TAX_RATE,
+                      "terminalGrowth": valuation.TERMINAL_GROWTH, "peerProfiles": len(valuation.peer_infos(peer_store)) + len(infos),
+                      "fx": {k: r4(v) for k, v in fx_rates.items()}},
         "backtest": backtest.get("report", {}),
         "backtestMarkets": mbt.get("report", {}),
         "backtestMarketsRecent": mbt.get("reportRecent", {}),
@@ -666,6 +687,7 @@ def main():
     dump(backtest, os.path.join(args.out, "backtest.json"))
     if alt_store is not None:
         altdata.dump_store(alt_store, args.out)
+    valuation.dump_peer_store(peer_store, args.out)
     with gzip.open(os.path.join(args.out, "ledger.json.gz"), "wt", encoding="utf-8") as fh:
         json.dump(clean({"entries": ledger}), fh, separators=(",", ":"))
     log.info("wrote %d tickers to %s in %.0fs", len(summary_tickers), args.out, time.time() - t_start)

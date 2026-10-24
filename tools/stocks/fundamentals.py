@@ -2,18 +2,11 @@
 
 This side of the page is deliberately rule-based and transparent. Fundamentals
 move slowly, so they say little about next week, but they are the only thing
-that says anything about the next year. Three classic valuation methods are
-blended:
-
-* **Earnings power** – next year's expected earnings per share times a
-  justified price/earnings ratio (half from what the market pays for the
-  company's sector peers, half from the company's own expected growth).
-* **Discounted cash flow** – ten years of free cash flow, growing at the
-  recent revenue growth rate and fading to 2.5%, discounted at a rate that
-  rises with the stock's beta, plus net cash.
-* **Analyst consensus** – the mean 12-month target when enough analysts cover
-  the stock.
-
+that says anything about the next year. The fair value comes from the valuation
+toolkit in valuation.py, which applies the methods an investment bank's
+football field is built from (trading comparables, a WACC-discounted cash
+flow, residual income for banks, a leveraged-buyout floor, a control premium,
+analyst targets) and blends the ones that estimate a fair value geometrically.
 Every input, intermediate value and sub-score is written to the JSON so the
 page can show exactly where a number came from.
 """
@@ -23,9 +16,8 @@ import math
 
 import numpy as np
 
-RISK_FREE = 0.042       # 10-year Treasury yield used in the discount rate
-EQUITY_PREMIUM = 0.05   # extra return demanded for holding stocks
-TERMINAL_GROWTH = 0.025
+import valuation
+
 FINANCIAL_SECTORS = {"Financial Services", "Financial"}
 
 
@@ -51,27 +43,9 @@ def _mean(values):
 
 
 def sector_medians(infos: dict[str, dict]) -> dict[str, dict[str, float]]:
-    """Median valuation multiples across the tracked stocks, per industry (key
-    "industry:<name>"), per sector and overall ("_all"). A group needs at least
-    three members to count, so a lone company is never its own peer."""
-    fields = ["forwardPE", "trailingPE", "enterpriseToEbitda", "priceToBook", "priceToSalesTrailing12Months"]
-    buckets: dict[str, dict[str, list]] = {}
-    for info in infos.values():
-        if info.get("quoteType") == "ETF":
-            continue
-        keys = [info.get("sector") or "_", "_all"]
-        if info.get("industry"):
-            keys.append("industry:" + info["industry"])
-        for key in keys:
-            b = buckets.setdefault(key, {f: [] for f in fields})
-            for f in fields:
-                v = _num(info.get(f))
-                if v is not None and 0 < v < 200:
-                    b[f].append(v)
-    out = {}
-    for key, b in buckets.items():
-        out[key] = {f: float(np.median(v)) for f, v in b.items() if len(v) >= (3 if key != "_all" else 1)}
-    return out
+    """Median valuation multiples across `infos`, per industry ("industry:<name>"),
+    per sector and overall ("_all"); a group needs at least three members."""
+    return valuation.medians_from(valuation.peer_groups(infos))
 
 
 def _peer_multiple(info, medians, field, allow_all=True):
@@ -87,112 +61,13 @@ def _peer_multiple(info, medians, field, allow_all=True):
     return None
 
 
-def fair_value(info: dict, price: float, medians: dict) -> dict:
-    """Fair value estimates for one stock. Returns inputs, each method's value and the blend."""
-    out = {"methods": {}, "inputs": {}}
-    if not info or info.get("quoteType") == "ETF" or not price:
-        return out
-
-    eps_f = _num(info.get("forwardEps"))
-    eps_t = _num(info.get("trailingEps"))
-    shares = _num(info.get("sharesOutstanding"))
-    fcf = _num(info.get("freeCashflow"))
-    cash = _num(info.get("totalCash")) or 0.0
-    debt = _num(info.get("totalDebt")) or 0.0
-    beta = _num(info.get("beta"))
-    rev_growth = _num(info.get("revenueGrowth"))
-    earn_growth = _num(info.get("earningsGrowth"))
-    book = _num(info.get("bookValue"))
-    sector = info.get("sector") or ""
-    financial = sector in FINANCIAL_SECTORS
-
-    # Expected earnings growth: forward vs trailing EPS, else reported growth, capped to sane values
-    growth = None
-    if eps_f and eps_t and eps_t > 0:
-        growth = eps_f / eps_t - 1
-    elif earn_growth is not None:
-        growth = earn_growth
-    if growth is not None:
-        # Earnings can't outgrow revenue by much for long: a one-year EPS rebound
-        # (after a write-down, say) must not buy a growth stock's multiple
-        if rev_growth is not None:
-            growth = min(growth, max(rev_growth, 0.0) + 0.10)
-        growth = float(np.clip(growth, -0.10, 0.30))
-    out["inputs"].update({
-        "forwardEps": eps_f, "trailingEps": eps_t, "expectedGrowth": growth, "beta": beta,
-        "revenueGrowth": rev_growth, "freeCashflow": fcf, "totalCash": cash, "totalDebt": debt,
-        "sharesOutstanding": shares, "bookValue": book,
-    })
-
-    # 1. Earnings power
-    peer_pe = _peer_multiple(info, medians, "forwardPE", allow_all=not financial)
-    if eps_f and eps_f > 0:
-        growth_pe = 8.0 + 1.2 * (growth * 100 if growth is not None else 6.0)  # a damped Graham formula
-        hi = 18.0 if financial else 40.0  # banks and insurers never trade like software companies
-        growth_pe = float(np.clip(growth_pe, 7.0, hi))
-        justified = float(np.clip(peer_pe, 7.0, hi)) if peer_pe else growth_pe
-        pe_used = 0.5 * justified + 0.5 * growth_pe
-        out["methods"]["earnings"] = {
-            "value": eps_f * pe_used, "peerPE": peer_pe, "growthPE": growth_pe, "justifiedPE": pe_used,
-            "label": "Earnings power",
-        }
-
-    # 2. Discounted cash flow (not for banks and insurers, whose cash flow isn't comparable)
-    if not financial and fcf and fcf > 0 and shares and shares > 0:
-        b = float(np.clip(beta if beta is not None else 1.0, 0.5, 2.0))
-        rate = float(np.clip(RISK_FREE + b * EQUITY_PREMIUM, 0.07, 0.13))
-        g1 = float(np.clip(rev_growth if rev_growth is not None else 0.04, -0.05, 0.20))
-        pv, cf = 0.0, fcf
-        for year in range(1, 11):
-            g = g1 if year <= 5 else g1 + (TERMINAL_GROWTH - g1) * (year - 5) / 5.0
-            cf *= 1 + g
-            pv += cf / (1 + rate) ** year
-        terminal = cf * (1 + TERMINAL_GROWTH) / (rate - TERMINAL_GROWTH) / (1 + rate) ** 10
-        equity = pv + terminal + cash - debt
-        out["methods"]["dcf"] = {
-            "value": equity / shares, "discountRate": rate, "growth5y": g1, "terminalGrowth": TERMINAL_GROWTH,
-            "label": "Discounted cash flow",
-        }
-
-    # 2b. Book value for financials (peers from the same industry or sector only: a
-    #     payments network's price-to-book says nothing about a bank)
-    if financial and book and book > 0:
-        peer_pb = _peer_multiple(info, medians, "priceToBook", allow_all=False)
-        if peer_pb:
-            out["methods"]["book"] = {"value": book * float(np.clip(peer_pb, 0.5, 2.5)), "peerPB": peer_pb,
-                                      "label": "Book value × peer multiple"}
-
-    # 3. Analyst consensus
-    target = _num(info.get("targetMeanPrice"))
-    n_analysts = _num(info.get("numberOfAnalystOpinions")) or 0
-    if target and n_analysts >= 4:
-        out["methods"]["analysts"] = {"value": target, "analysts": int(n_analysts), "label": "Analyst consensus"}
-
-    weights = {"earnings": 0.4, "dcf": 0.35, "book": 0.35, "analysts": 0.25}
-    # Sanity rule before blending: a method more than 5× away from the price is a
-    # data error or a method that doesn't apply, not an opinion (Yahoo reports
-    # Berkshire's book value per Class A share; a simple cash-flow model says
-    # nothing about a company spending all its cash flow on data centres): drop
-    # it, and say so. Once anything was dropped, one survivor isn't enough.
-    dropped = {}
-    for k, m in out["methods"].items():
-        if not (price / 5.0 <= m["value"] <= price * 5.0):
-            dropped[k] = "implausible"
-    kept = {k: m for k, m in out["methods"].items() if k not in dropped}
-    for k, why in dropped.items():
-        out["methods"][k]["dropped"] = why
-    if kept and (not dropped or len(kept) >= 2):
-        # A weighted geometric mean: 3× too high and 3× too low then cancel out,
-        # and one generous method can't drag the blend the way an average lets it
-        total = sum(weights[k] for k in kept)
-        blended = math.exp(sum(weights[k] * math.log(m["value"]) for k, m in kept.items()) / total)
-        # Never let one wild method dominate: cap the blend within 0.3×–3× the price
-        blended = float(np.clip(blended, 0.3 * price, 3.0 * price))
-        out["value"] = blended
-        out["marginOfSafety"] = blended / price - 1
-    elif out["methods"]:
-        out["note"] = "The valuation methods disagree too much to give one number."
-    return out
+def fair_value(info: dict, price: float, peers: dict, risk_free: float | None = None, fx: dict | None = None) -> dict:
+    """Fair value estimates for one stock: every method, the football field and the
+    blend. `peers` is valuation.peer_groups(...) (quartiles) or the flat median
+    shape, which is upgraded on the fly."""
+    if peers and any(isinstance(v, (int, float)) for g in peers.values() for v in g.values()):
+        peers = {k: {f: {"p25": m, "median": m, "p75": m, "n": 3} for f, m in g.items()} for k, g in peers.items()}
+    return valuation.valuation(info, price, peers or {}, risk_free, fx)
 
 
 def fundamental_score(info: dict, price: float, medians: dict, fv: dict) -> dict:

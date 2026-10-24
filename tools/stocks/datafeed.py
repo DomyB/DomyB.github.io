@@ -24,7 +24,7 @@ CONTEXT_SYMBOLS = {"market": "SPY", "vix": "^VIX", "rates": "^TNX"}
 
 # Fields copied from Yahoo's company profile. Missing fields are simply absent.
 INFO_FIELDS = [
-    "shortName", "longName", "sector", "industry", "currency", "quoteType",
+    "shortName", "longName", "sector", "industry", "currency", "financialCurrency", "quoteType",
     "exchange", "country", "website", "longBusinessSummary",
     "marketCap", "enterpriseValue", "sharesOutstanding", "beta",
     "currentPrice", "regularMarketPrice", "previousClose", "regularMarketPreviousClose",

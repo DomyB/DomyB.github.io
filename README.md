@@ -165,8 +165,12 @@ signals, fundamentals and forecasts, and it grades its own forecasts in public a
 - **A stock's page:** a one-paragraph verdict (model, chart, fundamentals) and five tabs. *Overview:*
   a price chart with moving averages, Bollinger bands and the forecast cone, RSI and MACD, the
   forecasts for every horizon, the scores. *Chart signals:* plain-language readings of trend, momentum,
-  overbought/oversold, volume and volatility. *Fundamentals:* a fair value built from three methods
-  (with any method that was set aside, and why), the key ratios and the analysts' view. *Track record:*
+  overbought/oversold, volume and volatility. *Fundamentals:* an investment-bank style valuation: a
+  football field of every method's range (trading comparables on peer quartiles, a WACC-discounted cash
+  flow with its sensitivity grid, residual income and dividends for financials, a leveraged-buyout
+  floor, a control-premium takeover reference, analyst targets, the 52-week range), the cost-of-capital
+  build-up, each method's inputs, the blended fair value with any method that was set aside and why,
+  the key ratios against the industry's medians and the analysts' view. *Track record:*
   that stock's graded forecasts. *About:* the company and where the data came from. Each tab has its
   own address (`#/AAPL/signals`).
 - **How the forecasts work:** what the model can and can't do, the walk-forward backtest horizon by
@@ -184,6 +188,24 @@ writes down today's forecasts in a ledger and grades the ones that have come due
 of plain JSON files pushed to the **`stock-data`** branch, which the page reads straight from
 `raw.githubusercontent.com`. `main` is never touched, so the blog's history stays clean. A copy of the
 output from the last manual run lives in `assets/data/stocks/` as a fallback for the very first load.
+
+The fair value side mirrors how a bank values a company (`tools/stocks/valuation.py`). Trading
+comparables apply the quartiles of the closest peer group's multiples (forward P/E, EV/EBITDA, EV/Sales;
+price to book for banks and insurers) to the company's own figures, bridging enterprise value to equity
+through debt and cash; the peers are every S&P 500 member plus the FTSE MIB, kept in `peers.json.gz` on
+the data branch and refreshed sixty profiles per run. The DCF projects free cash flow to the firm for ten
+years (revenue growth capped at 15% and at ten points above expected earnings growth, fading to 2.5%, a
+constant cash margin) and discounts it mid-year at a WACC built from the day's 10-year Treasury yield, a
+Blume-adjusted beta, a 5% equity premium, a leverage-dependent credit spread, the 23% tax shield and
+market-value weights, with a perpetuity terminal value, an exit-multiple cross-check and a WACC × growth
+sensitivity grid. Financials get a residual-income model (book value plus fading excess returns over the
+cost of equity) and a dividend discount cross-check. A leveraged-buyout model backs out the price a sponsor
+could pay for a 20–25% return after five years at 5.5× EBITDA of debt, and a 20–40% control premium on the
+comparables stands in for precedent transactions, since no free database of deal multiples exists; both are
+reference bars, never blended. The point estimate is a weighted geometric mean of comparables, the
+intrinsic model and the analysts, with the sanity rules described on the page. Diluted shares are taken as
+market value over price, so a second share class (Alphabet, Meta, Berkshire) is counted; accounts reported
+in another currency than the share's are converted at the day's rate (euro pegs included).
 
 The model forecasts *relative* performance (which stocks beat the others, net of their beta to the
 market) on top of a conservative market drift, because that is the only part of stock returns with a

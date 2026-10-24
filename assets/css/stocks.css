@@ -1613,3 +1613,157 @@
     display: none !important;
   }
 }
+
+/* ---------- valuation toolkit: football field, sensitivity, comparables ---------- */
+
+.card--wide { grid-column: 1 / -1; }
+
+.fv-methods li.is-ref { opacity: 0.85; }
+.fv-methods li.is-ref b { color: var(--text-soft); font-weight: 500; }
+.fv-methods li.is-skipped { opacity: 0.6; }
+
+.ff {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0.75rem 0 0.25rem;
+  font: 500 0.8rem/1.3 var(--font-sans);
+}
+
+.ff__row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 11rem) 1fr minmax(6rem, auto);
+  gap: 0 0.75rem;
+  align-items: center;
+}
+
+.ff__row--leg { font-size: 0.75rem; }
+.ff__row--leg .ff__label { padding-left: 0.9rem; color: var(--muted); }
+.ff__row--leg .ff__bar { height: 0.45rem; }
+.ff__row--dropped .ff__label { text-decoration: line-through; color: var(--muted); }
+.ff__row--axis { margin-top: 0.2rem; }
+
+.ff__label { color: var(--text-soft); }
+.ff__range { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+
+.ff__track {
+  position: relative;
+  height: 1.1rem;
+  background: var(--bg-sunk);
+  border-radius: 999px;
+  overflow: visible;
+}
+
+.ff__bar {
+  position: absolute;
+  top: 50%;
+  height: 0.7rem;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
+.ff__row--blend .ff__bar { background: color-mix(in srgb, var(--indigo) 70%, transparent); }
+.ff__row--dropped .ff__bar { background: color-mix(in srgb, var(--muted) 25%, transparent); }
+.ff__bar--clipl { border-radius: 0 999px 999px 0; }
+.ff__bar--clipr { border-radius: 999px 0 0 999px; }
+
+.ff__mid {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 1.1rem;
+  transform: translate(-50%, -50%);
+  background: var(--text);
+}
+
+.ff__line {
+  position: absolute;
+  top: -0.2rem;
+  bottom: -0.2rem;
+  width: 0;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.ff__line--price { border-left: 2px dashed var(--down); }
+.ff__line--value { border-left: 2px solid var(--up); }
+
+.ff__axis { position: relative; height: 1.1rem; }
+
+.ff__tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ff__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  margin: 0.5rem 0 0;
+  font: 500 0.75rem/1.3 var(--font-sans);
+  color: var(--muted);
+}
+
+.ff__key::before {
+  content: "";
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.55rem;
+  margin-right: 0.35rem;
+  border-radius: 999px;
+  vertical-align: middle;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
+.ff__key--blend::before { background: color-mix(in srgb, var(--indigo) 70%, transparent); }
+.ff__key--price::before { width: 0; height: 0.8rem; border-radius: 0; border-left: 2px dashed var(--down); background: none; }
+.ff__key--value::before { width: 0; height: 0.8rem; border-radius: 0; border-left: 2px solid var(--up); background: none; }
+
+@media (max-width: 40rem) {
+  .ff__row { grid-template-columns: minmax(5.5rem, 7.5rem) 1fr; }
+  .ff__range { display: none; }
+}
+
+.sens {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.sens th,
+.sens td {
+  padding: 0.35rem 0.5rem;
+  text-align: right;
+  border-bottom: 1px solid var(--rule);
+}
+
+.sens th {
+  font: 600 0.7rem/1.2 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sens tbody th { text-align: left; padding-left: 0; }
+.sens td.is-up { color: var(--up); }
+.sens td.is-down { color: var(--down); }
+.sens td.is-base { font-weight: 700; background: color-mix(in srgb, var(--indigo) 10%, transparent); }
+
+.comps td.comps__group {
+  white-space: normal;
+  font-size: 0.78rem;
+  color: var(--muted);
+  max-width: 11rem;
+}
+
+.comps td small { display: block; color: var(--muted); font-size: 0.75rem; }
+
+.proj { margin-top: 0.75rem; }
+.proj summary { cursor: pointer; font: 600 0.8rem/1.3 var(--font-sans); color: var(--text-soft); }
+.proj .record-table { margin-top: 0.5rem; font-size: 0.8rem; }
