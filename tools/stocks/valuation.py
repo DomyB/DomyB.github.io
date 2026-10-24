@@ -12,13 +12,16 @@ each input, each intermediate number and each assumption:
   of EBIT less tax plus depreciation less capital spending, and operating
   cash flow less capital spending and stock-based pay plus after-tax
   interest, all from the trailing twelve months of the statements), projected ten years with
-  revenue growth fading to the terminal rate at a constant cash margin and
+  revenue growth fading to the terminal rate, capital spending above
+  depreciation fading to depreciation plus growth, 3% of each year's extra
+  revenue tied up in working capital, and
   discounted mid-year at a WACC assembled from the current 10-year Treasury
   yield, a Blume-adjusted beta, an equity risk premium, a credit spread that
   rises with leverage, the company's own tax rate and the market-value
   capital structure; a perpetuity-growth terminal value cross-checked with
   an exit multiple, and a WACC × growth sensitivity grid for the range.
-* **Residual income** (banks, insurers, asset managers) – book value plus
+* **Residual income** (banks, insurers and other lenders: the financial-sector
+  names Yahoo reports no EBITDA for) – book value plus
   the present value of the excess of return on equity over the cost of
   equity, with the excess fading as competition catches up. A **dividend
   discount model** is shown next to it as a cross-check.
@@ -59,6 +62,8 @@ LBO_MAX_DEBT_SHARE = 0.70   # ...and never more than this share of the purchase 
 LBO_LOAN_SPREAD = 0.045     # leveraged-loan spread over the risk-free rate
 LBO_IRRS = (0.25, 0.225, 0.20)   # low, mid, high price (a higher required return buys less)
 CONTROL_PREMIUM = (0.20, 0.30, 0.40)
+RI_BOOK_GROWTH_CAP = 0.08   # book value per share can't compound faster for a decade (buybacks eat the rest)
+RI_PERSISTENCE = 0.6        # share of the year-ten excess return that survives into the terminal
 BLEND_WEIGHTS = {"comps": 0.40, "dcf": 0.35, "residual": 0.35, "analysts": 0.25}
 FINANCIAL_SECTORS = {"Financial Services", "Financial"}
 EUR_PEGS = {"DKK": 7.4604, "BGN": 1.9558}   # currencies fixed to the euro
@@ -130,13 +135,15 @@ def peer_groups(infos: dict[str, dict]) -> dict[str, dict[str, list]]:
                     continue
                 v = _num(info.get(f))
                 if v is not None and 0 < v < cap:
-                    b[f].append([sym, v])
+                    b[f].append([sym, v, ck])
     return buckets
 
 
 def group_stats(members: list, exclude: str | None = None, need: int = MIN_PEERS) -> dict | None:
-    """Quartiles of a group's multiple, leaving the company itself out."""
-    vals = [v for sym, v in members if sym != exclude]
+    """Quartiles of a group's multiple, leaving the company itself (any share class) out:
+    `exclude` is a (symbol, company key) pair or a bare symbol."""
+    sym_x, key_x = (exclude if isinstance(exclude, tuple) else (exclude, None))
+    vals = [m[1] for m in members if m[0] != sym_x and (key_x is None or len(m) < 3 or m[2] != key_x)]
     if len(vals) < need:
         return None
     q = np.percentile(vals, [25, 50, 75])
@@ -146,16 +153,19 @@ def group_stats(members: list, exclude: str | None = None, need: int = MIN_PEERS
 def peer_stats(info: dict, peers: dict, field: str, allow_all: bool = True, exclude: str | None = None):
     """The closest peer group's quartiles for one multiple, without the company
     itself, and a label naming the group: the industry first (at least
-    MIN_PEERS others), then the sector, then everyone tracked."""
+    MIN_PEERS others), then the sector, then the whole universe."""
     cands = []
     if info.get("industry"):
         cands.append(("industry:" + str(info["industry"]), str(info["industry"])))
     cands.append((str(info.get("sector") or "_"), str(info.get("sector") or "other") + " sector"))
     if allow_all:
-        cands.append(("_all", "all tracked stocks"))
+        cands.append(("_all", "S&P 500 and FTSE MIB"))
+    who = (exclude, _company_key(info, exclude)) if exclude else None
     for key, label in cands:
         members = peers.get(key, {}).get(field)
-        s = group_stats(members, exclude) if members else None
+        if not members:
+            continue
+        s = group_stats(members, who)
         if s and s.get("median"):
             return s, f"{label} ({s['n']})"
     return None, None
@@ -166,7 +176,7 @@ def medians_from(peers: dict) -> dict[str, dict[str, float]]:
     out = {}
     for key, fields in peers.items():
         need = 1 if key == "_all" else 3
-        out[key] = {f: float(np.median([v for _, v in m])) for f, m in fields.items() if len(m) >= need}
+        out[key] = {f: float(np.median([x[1] for x in m])) for f, m in fields.items() if len(m) >= need}
     return out
 
 
@@ -213,8 +223,9 @@ def fx_rate(from_ccy: str | None, to_ccy: str | None, fx: dict | None) -> float 
 def is_financial(info: dict) -> bool:
     """A balance-sheet business (bank, insurer, lender), to be valued on book value
     and dividends rather than cash flow. The tell is that Yahoo reports no EBITDA
-    for it: a payment network, an asset manager or Berkshire sit in the same
-    sector but have real operating cash flow and are valued like any company."""
+    for it: a payment network or an asset manager sit in the same sector but
+    have real operating cash flow and are valued like any company; insurers,
+    Berkshire included, are financials."""
     if (info.get("sector") or "") not in FINANCIAL_SECTORS:
         return False
     industry = str(info.get("industry") or "").lower()
@@ -332,8 +343,9 @@ def cost_of_capital(inp: dict, risk_free: float | None) -> dict:
     kd = rf + spread
     tax = inp["taxRate"] if inp.get("taxRate") is not None else TAX_RATE
     kd_after = kd * (1 - tax)
-    e, d = (inp["marketCap"] or 0.0), inp["debt"]
-    w_e = e / (e + d) if (e + d) > 0 else 1.0
+    e = inp["marketCap"] or ((inp["sharesListed"] or 0.0) * (inp["price"] or 0.0))
+    d = inp["debt"]
+    w_e = e / (e + d) if e > 0 and (e + d) > 0 else 1.0   # unknown equity value: the cost of equity, not 100% debt
     raw_wacc = w_e * ke + (1 - w_e) * kd_after
     wacc = _clip(raw_wacc, 0.06, 0.14)
     out = {"riskFree": rf, "betaRaw": beta_raw, "betaAdjusted": beta_adj, "equityPremium": EQUITY_PREMIUM,
@@ -359,8 +371,9 @@ def _ev_to_price(ev: float, inp: dict) -> float | None:
 
 def trading_comps(info: dict, inp: dict, peers: dict, symbol: str | None = None) -> dict | None:
     """Peer multiples applied to this company's numbers. Forward P/E and EV/EBITDA
-    carry most of the weight (what buyers actually quote); EV/Sales is a fallback
-    for loss-makers; price-to-book is for financials, whose EV means nothing."""
+    carry most of the weight (what buyers actually quote); EV/Sales carries 20%
+    and is the only leg left for a loss-maker with no EBITDA; price-to-book is
+    for financials, whose EV means nothing."""
     legs = {}
     fin = inp["financial"]
     convertible = inp["fxRate"] is not None
@@ -431,18 +444,38 @@ def dcf(inp: dict, cost: dict, exit_multiple: float | None) -> dict | None:
     # and working-capital swings, so the two are averaged (a one-off counts
     # half); when a write-off wipes one out the other stands in.
     from_ebit = (ebit0 * (1 - t) + (da0 or 0.0) - (capex0 or 0.0)) if ebit0 is not None else None
-    interest = inp["interestExpense"] if inp["interestExpense"] is not None else cost["costOfDebt"] * inp["debt"]
+    modelled = cost["costOfDebt"] * inp["debt"]
+    # Yahoo's "interest expense" sometimes bundles other financial charges (ENI
+    # reports 16% of its debt), so the add-back is capped near the modelled cost
+    interest = min(inp["interestExpense"], 1.5 * modelled) if inp["interestExpense"] is not None else modelled
     sbc = inp["stockComp"] or 0.0   # a cost in both readings: shares handed to staff are owners' money
-    from_fcf = (inp["freeCashflow"] - sbc + interest * (1 - t)) if inp["freeCashflow"] is not None else None
-    positive = [b for b in (from_ebit, from_fcf) if b is not None and b > 0]
-    if not positive:
-        if from_ebit is None and from_fcf is None:
-            return None
-        why = ("it is spending more on growth than it earns, so the value hinges on when that stops"
-               if (ebit0 or 0) > 0 else "no operating profit to discount")
-        return {"label": "Discounted cash flow", "skipped": why, "ufcfFromEbit": from_ebit, "ufcfFromFcf": from_fcf}
-    ufcf0 = float(np.mean(positive))
-    basis = "both" if len(positive) == 2 else ("ebit" if from_ebit in positive else "fcf")
+    fcf = inp["freeCashflow"]
+    if fcf is None and inp["capexAssumed"] and inp["leveredFcfProfile"] is not None:
+        fcf = inp["leveredFcfProfile"]   # no statements: the profile's levered figure is the only cash reading
+    from_fcf = (fcf - sbc + interest * (1 - t)) if fcf is not None else None
+    readings = [b for b in (from_ebit, from_fcf) if b is not None]
+    if not readings:
+        return None
+    if (ebit0 or 0.0) <= 0:
+        return {"label": "Discounted cash flow", "skipped": "no operating profit to discount", "ufcfFromEbit": from_ebit, "ufcfFromFcf": from_fcf}
+    positive = [b for b in readings if b > 0]
+    # Capital spending above depreciation is growth investment: it is assumed to
+    # fade to depreciation plus terminal growth by year ten, the standard
+    # terminal-year normalisation, which is what lets a company in a build-out
+    # (today's free cash flow near zero or negative) be valued at all
+    da_pct = (da0 or 0.0) / rev0
+    capex_pct0 = (capex0 or 0.0) / rev0
+    capex_pct_end = min(capex_pct0, da_pct * (1 + g_inf))
+    normalising = capex_pct0 - capex_pct_end
+    if positive:
+        ufcf0 = float(np.mean(positive))
+        basis = "both" if len(positive) == 2 else ("ebit" if from_ebit in positive else "fcf")
+    else:
+        ufcf0 = float(np.mean(readings))   # negative today: the fade has to carry the value
+        basis = "negative"
+    if ufcf0 + normalising * rev0 <= 0:
+        return {"label": "Discounted cash flow", "skipped": "it is spending more on growth than it earns, and even with that spending back at depreciation the cash flow stays negative",
+                "ufcfFromEbit": from_ebit, "ufcfFromFcf": from_fcf}
     readings_disagree = len(positive) == 2 and max(positive) > 2.0 * min(positive)
     cash_margin = ufcf0 / rev0
     # Three years at the near-term growth rate (capped at 15%: nothing this size
@@ -454,7 +487,8 @@ def dcf(inp: dict, cost: dict, exit_multiple: float | None) -> dict | None:
         for year in range(1, PROJECTION_YEARS + 1):
             g = g1 if year <= 3 else g1 + (g_end - g1) * (year - 3) / (PROJECTION_YEARS - 3)
             rev_prev, rev = rev, rev * (1 + g)
-            ufcf = rev * cash_margin - NWC_PCT_OF_GROWTH * (rev - rev_prev)
+            margin = cash_margin + normalising * year / PROJECTION_YEARS
+            ufcf = rev * margin - NWC_PCT_OF_GROWTH * (rev - rev_prev)
             pv += ufcf / (1 + w) ** (year - 0.5)
             flows.append({"year": year, "growth": g, "revenue": rev, "ufcf": ufcf})
         last = flows[-1]
@@ -466,7 +500,7 @@ def dcf(inp: dict, cost: dict, exit_multiple: float | None) -> dict | None:
     ev = pv + pv_tv
     value = _ev_to_price(ev, inp)
     if value is None or value <= 0:
-        return {"label": "Discounted cash flow", "skipped": "this year's cash flow is too thin against the debt: the value hinges on cash flows that don't exist yet",
+        return {"label": "Discounted cash flow", "skipped": "the cash flows are too thin against the debt: the value hinges on cash flows that don't exist yet",
                 "ufcfFromEbit": from_ebit, "ufcfFromFcf": from_fcf}
     grid = []
     for w in (wacc - 0.01, wacc, wacc + 0.01):
@@ -478,10 +512,11 @@ def dcf(inp: dict, cost: dict, exit_multiple: float | None) -> dict | None:
         grid.append(row)
     vals = [v for row in grid for v in row if v is not None]
     if not vals:
-        return {"label": "Discounted cash flow", "skipped": "this year's cash flow is too thin against the debt: the value hinges on cash flows that don't exist yet"}
+        return {"label": "Discounted cash flow", "skipped": "the cash flows are too thin against the debt: the value hinges on cash flows that don't exist yet"}
     out = {
         "label": "Discounted cash flow", "value": value, "low": min(vals), "high": max(vals),
         "basis": basis, "ufcf0": ufcf0, "ufcfFromEbit": from_ebit, "ufcfFromFcf": from_fcf, "cashMargin": cash_margin,
+        "cashMarginEnd": cash_margin + normalising, "capexPct": capex_pct0, "capexPctEnd": capex_pct_end, "daPct": da_pct,
         "taxRate": t, "interest": interest, "capexAssumed": inp["capexAssumed"], "statementsBasis": inp["statementsBasis"],
         "readingsDisagree": readings_disagree,
         "growth3y": g1, "terminalGrowth": g_inf, "discountRate": wacc,
@@ -508,7 +543,7 @@ def dcf(inp: dict, cost: dict, exit_multiple: float | None) -> dict | None:
 
 def residual_income(inp: dict, cost: dict) -> dict | None:
     """Book value plus the present value of returns above the cost of equity, with
-    half the excess competed away over ten years and the rest capitalised."""
+    half the excess competed away over ten years and part of the rest capitalised."""
     b0, roe0, ke = inp["bookValue"], inp["roe"], cost["costOfEquity"]
     if not inp["financial"] or not b0 or b0 <= 0 or roe0 is None:
         return None
@@ -516,16 +551,20 @@ def residual_income(inp: dict, cost: dict) -> dict | None:
     payout = _clip(inp["payoutRatio"] if inp["payoutRatio"] is not None else 0.30, 0.0, 0.90)
     roe_end = ke + 0.5 * (roe0 - ke)
 
+    # Book value per share grows with retained earnings, but banks return most of
+    # what they don't pay out through buybacks, so the growth is capped
+    g_book = _clip(roe0 * (1 - payout), 0.0, RI_BOOK_GROWTH_CAP)
+
     def project(k):
         b, pv, last_ri = b0, 0.0, 0.0
         for year in range(1, PROJECTION_YEARS + 1):
             roe = roe0 + (roe_end - roe0) * year / PROJECTION_YEARS
-            eps = roe * b
             ri = (roe - k) * b
             pv += ri / (1 + k) ** year
-            b += eps * (1 - payout)
+            b *= 1 + g_book
             last_ri = ri
-        tv = last_ri * (1 + TERMINAL_GROWTH) / max(k - TERMINAL_GROWTH, 0.02) if last_ri > 0 else 0.0
+        # only part of the year-ten excess return persists: franchises fade
+        tv = RI_PERSISTENCE * last_ri * (1 + TERMINAL_GROWTH) / max(k - TERMINAL_GROWTH, 0.02) if last_ri > 0 else 0.0
         return b0 + pv + tv / (1 + k) ** PROJECTION_YEARS, pv, tv / (1 + k) ** PROJECTION_YEARS
 
     value, pv_ri, pv_tv = project(ke)
@@ -534,8 +573,8 @@ def residual_income(inp: dict, cost: dict) -> dict | None:
     if value <= 0:
         return {"label": "Residual income", "skipped": "returns below the cost of equity leave nothing above book"}
     return {"label": "Residual income", "value": value, "low": min(lo, hi), "high": max(lo, hi),
-            "bookValue": b0, "roe": roe0, "roeEnd": roe_end, "payout": payout, "costOfEquity": ke,
-            "pvResidual": pv_ri, "pvTerminal": pv_tv}
+            "bookValue": b0, "roe": roe0, "roeEnd": roe_end, "payout": payout, "bookGrowth": g_book,
+            "persistence": RI_PERSISTENCE, "costOfEquity": ke, "pvResidual": pv_ri, "pvTerminal": pv_tv}
 
 
 def dividend_model(inp: dict, cost: dict) -> dict | None:

@@ -504,6 +504,12 @@ def main():
             prev_info = prev_file.get("fundamentals", {}).get("info") or {}
             if prev_info and ("sector" in prev_info or prev_info.get("quoteType") == "ETF"):
                 infos[sym] = dict(prev_info, stale=True)
+                if "financialCurrency" not in prev_info:
+                    # An older profile can't say which currency its accounts are in,
+                    # so only the per-share methods may use it
+                    for k in ("totalRevenue", "ebitda", "totalDebt", "totalCash", "freeCashflow", "operatingCashflow",
+                              "enterpriseValue", "statements"):
+                        infos[sym].pop(k, None)
                 log.info("using previous fundamentals for %s", sym)
             elif prev_info:
                 infos[sym] = dict(prev_info, stale=True, incomplete=True)
@@ -663,7 +669,8 @@ def main():
                                "calibration": {str(h): {"slope": mcal[h]["slope"]} for h in HORIZONS if h in mcal},
                                "backtestGeneratedAt": mbt.get("generatedAt")} if msyms and 21 in mfinal else None)},
         "valuation": {"riskFree": risk_free, "equityPremium": valuation.EQUITY_PREMIUM, "taxRate": valuation.TAX_RATE,
-                      "terminalGrowth": valuation.TERMINAL_GROWTH, "peerProfiles": len(valuation.peer_infos(peer_store)) + len(infos),
+                      "terminalGrowth": valuation.TERMINAL_GROWTH,
+                      "peerProfiles": len(valuation.peer_infos(peer_store)) + sum(1 for i in infos.values() if i.get("sector") and i.get("quoteType") != "ETF"),
                       "fx": {k: r4(v) for k, v in fx_rates.items()}},
         "backtest": backtest.get("report", {}),
         "backtestMarkets": mbt.get("report", {}),
