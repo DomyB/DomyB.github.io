@@ -1755,14 +1755,14 @@
 .sens td.is-down { color: var(--down); }
 .sens td.is-base { font-weight: 700; background: color-mix(in srgb, var(--indigo) 10%, transparent); }
 
-.comps td.comps__group {
-  white-space: normal;
-  font-size: 0.78rem;
-  color: var(--muted);
-  max-width: 11rem;
-}
-
-.comps td small { display: block; color: var(--muted); font-size: 0.75rem; }
+.comps { table-layout: fixed; }
+.comps th, .comps td { white-space: normal; padding-left: 0.4rem; padding-right: 0.4rem; }
+.comps th:first-child, .comps td:first-child { padding-left: 0; }
+.comps th:last-child, .comps td:last-child { padding-right: 0; }
+.comps td.comps__name { font-weight: 600; }
+.comps td.comps__group { font-size: 0.75rem; color: var(--muted); line-height: 1.3; }
+.comps td.comps__q b { font-weight: 600; }
+.comps td small { display: block; color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
 
 .proj { margin-top: 0.75rem; }
 .proj summary { cursor: pointer; font: 600 0.8rem/1.3 var(--font-sans); color: var(--text-soft); }

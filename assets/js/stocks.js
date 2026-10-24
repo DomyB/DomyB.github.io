@@ -1385,11 +1385,11 @@
 
   function compsCard(m, cur) {
     var legs = Object.keys(m.legs || {}).map(function (k) { return m.legs[k]; });
-    var head = el("tr", {}, el("th", { text: "Multiple" }), el("th", { text: "Peers" }), el("th", { text: "25th" }), el("th", { text: "Median" }), el("th", { text: "75th" }), el("th", { text: "Implied" }));
+    var head = el("tr", {}, el("th", { text: "Multiple" }), el("th", { text: "Peers" }), el("th", { text: "Quartiles" }), el("th", { text: "Implied" }));
     var body = legs.map(function (L) {
-      return el("tr", {}, el("td", { text: L.label.split(" ×")[0] }), el("td", { class: "comps__group", text: L.peerGroup }),
-        el("td", { text: num(L.peerP25, 1) + "×" }), el("td", { text: num(L.peerMedian, 1) + "×" }), el("td", { text: num(L.peerP75, 1) + "×" }),
-        el("td", {}, el("b", { text: money(L.mid, cur, 0) }), el("small", { text: money(L.low, cur, 0) + "–" + money(L.high, cur, 0) })));
+      return el("tr", {}, el("td", { class: "comps__name", text: L.label.split(" ×")[0] }), el("td", { class: "comps__group", text: L.peerGroup }),
+        el("td", { class: "comps__q" }, el("b", { text: num(L.peerMedian, 1) + "×" }), el("small", { text: num(L.peerP25, 1) + "× – " + num(L.peerP75, 1) + "×" })),
+        el("td", {}, el("b", { text: money(L.mid, cur, 0) }), el("small", { text: money(L.low, cur, 0) + " – " + money(L.high, cur, 0) })));
     });
     var card = el("div", { class: "card" }, el("p", { class: "card__title", text: "Trading comparables" }),
       el("table", { class: "record-table comps" }, el("thead", {}, head), el("tbody", {}, body)));
@@ -1459,7 +1459,7 @@
           return;
         }
         var use = m.dropped ? "set aside: more than five times from the price, so the data or the assumptions don't fit this company"
-          : m.inBlend && m.weight ? "weight " + Math.round(m.weight * 100) + "%" : "reference, not blended";
+          : m.inBlend && m.weight ? "weight " + Math.round(m.weight * 100) + "%" : m.inBlend === false ? "reference, not blended" : "";
         ul.appendChild(el("li", { class: m.dropped ? "is-dropped" : m.inBlend ? "" : "is-ref" },
           el("span", { style: "grid-column:1", text: m.label + " · " + use }), el("b", { text: money(m.value, cur) }), el("span", { text: methodExplainer(k, m, cur) })));
       });
