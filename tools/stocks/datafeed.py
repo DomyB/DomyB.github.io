@@ -114,6 +114,96 @@ def fetch_info(symbol: str) -> dict:
     return picked
 
 
+# Rows of the cash-flow and income statements the valuation needs, by the names
+# yfinance gives them (first match wins). Yahoo's profile has no capital
+# spending, interest or tax figures, and its "free cash flow" field is a
+# levered estimate that is nothing like operating cash flow less capex.
+STATEMENT_ROWS = {
+    "cashflow": {
+        "capex": ["Capital Expenditure", "Purchase Of PPE", "Net PPE Purchase And Sale"],
+        "operatingCashFlow": ["Operating Cash Flow"],
+        "da": ["Depreciation And Amortization", "Depreciation Amortization Depletion", "Reconciled Depreciation"],
+        "stockComp": ["Stock Based Compensation"],
+        "interestPaid": ["Interest Paid Supplemental Data"],
+        "taxPaid": ["Income Tax Paid Supplemental Data"],
+    },
+    "income": {
+        "revenue": ["Total Revenue"],
+        "operatingIncome": ["Operating Income"],
+        "ebitdaNormalized": ["Normalized EBITDA"],
+        "interestExpense": ["Interest Expense", "Interest Expense Non Operating"],
+        "pretaxIncome": ["Pretax Income"],
+        "taxProvision": ["Tax Provision"],
+        "netIncome": ["Net Income"],
+    },
+}
+
+
+def fetch_statements(symbol: str) -> dict:
+    """Trailing-twelve-month figures from the cash-flow and income statements
+    (the sum of the last four quarters; the latest annual statement when fewer
+    are published). Amounts are in the company's reporting currency. Returns
+    {} when Yahoo has nothing, so the valuation falls back to its proxies."""
+    import pandas as pd
+
+    def pick(frame, names):
+        for n in names:
+            if n in frame.index:
+                return frame.loc[n]
+        return None
+
+    def ttm(frame, rows):
+        out, asof, quarters = {}, None, 0
+        if frame is None or frame.empty:
+            return out, asof, quarters
+        cols = list(frame.columns)[:4]
+        for key, names in rows.items():
+            row = pick(frame, names)
+            if row is None:
+                continue
+            vals = [float(v) for v in row[cols].values if pd.notna(v)]
+            if len(vals) >= 3:   # one missing quarter is scaled up, two is too thin
+                out[key] = sum(vals) * 4.0 / len(vals)
+                quarters = max(quarters, len(vals))
+        asof = str(cols[0].date()) if cols else None
+        return out, asof, quarters
+
+    def annual(frame, rows):
+        out = {}
+        if frame is None or frame.empty:
+            return out
+        col = list(frame.columns)[0]
+        for key, names in rows.items():
+            row = pick(frame, names)
+            if row is not None and pd.notna(row[col]):
+                out[key] = float(row[col])
+        return out
+
+    def get():
+        tk = yf.Ticker(symbol)
+        cf, cf_asof, nq = ttm(tk.quarterly_cashflow, STATEMENT_ROWS["cashflow"])
+        inc, inc_asof, nq2 = ttm(tk.quarterly_income_stmt, STATEMENT_ROWS["income"])
+        basis = "ttm"
+        if not cf and not inc:
+            cf = annual(tk.cashflow, STATEMENT_ROWS["cashflow"])
+            inc = annual(tk.income_stmt, STATEMENT_ROWS["income"])
+            basis = "annual"
+            if not cf and not inc:
+                raise RuntimeError("no statements")
+        out = dict(cf, **inc)
+        if "capex" in out:
+            out["capex"] = abs(out["capex"])
+        out["basis"] = basis
+        out["asOf"] = cf_asof or inc_asof
+        return out
+
+    try:
+        return _retry(get, attempts=2, wait=2.0, what=f"statements for {symbol}")
+    except RuntimeError as exc:
+        log.warning("%s", exc)
+        return {}
+
+
 def fetch_all_info(symbols: list[str], pause: float = 0.35) -> dict[str, dict]:
     """Profiles for many symbols, politely spaced so Yahoo doesn't throttle us."""
     infos = {}

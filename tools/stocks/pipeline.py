@@ -53,7 +53,7 @@ import features  # noqa: E402
 import markets  # noqa: E402
 import altdata  # noqa: E402
 import valuation  # noqa: E402
-from datafeed import CONTEXT_SYMBOLS, download_prices, fetch_all_info, fetch_info, market_session_state  # noqa: E402
+from datafeed import CONTEXT_SYMBOLS, download_prices, fetch_all_info, fetch_info, fetch_statements, market_session_state  # noqa: E402
 from features import HORIZON_LABELS, HORIZONS, build_panel, context_features, indicators  # noqa: E402
 from fundamentals import fair_value, fundamental_score, fundamental_view  # noqa: E402
 from signals import technical_readings, technical_score  # noqa: E402
@@ -489,6 +489,13 @@ def main():
     prev_summary = read_prev(args.prev, "summary.json") or {}
     prev_tickers = {t["symbol"]: t for t in prev_summary.get("tickers", [])}
     infos = {} if args.skip_fundamentals else fetch_all_info(tracked)
+    # The statements (capital spending, depreciation, interest, taxes) the valuation
+    # needs and the profile lacks; they travel inside the profile so a stale
+    # profile carries its statements with it
+    for sym, info in infos.items():
+        if info.get("sector") and info.get("quoteType") != "ETF":
+            info["statements"] = fetch_statements(sym)
+            time.sleep(0.3)
     for sym in tracked:
         if not infos.get(sym):
             # Yahoo throttles the profile endpoint now and then: keep the previous
@@ -560,7 +567,7 @@ def main():
                              "drift": r.drift, "z": r.z}
         readings, parts = technical_readings(row)
         tscore = technical_score(parts)
-        fv = fair_value(info, close, peers, risk_free, fx_rates) if not no_fundamentals else {"methods": {}, "inputs": {}}
+        fv = fair_value(info, close, peers, risk_free, fx_rates, sym) if not no_fundamentals else {"methods": {}, "inputs": {}}
         fscore = fundamental_score(info, close, medians, fv) if not no_fundamentals else {}
         view = fundamental_view(fv, info, close) if fv.get("value") else None
         mscore = model_score(fcs)
@@ -634,12 +641,7 @@ def main():
                                                               "rank_mom12_1", "rank_ret21", "rank_vol21")}},
             "fundamentals": None if is_market else {
                 "info": info, "fairValue": fv, "score": fscore, "view12m": view,
-                "peers": {"sector": info.get("sector"), "industry": info.get("industry"),
-                          "medians": medians.get(info.get("sector") or "_", {}),
-                          "industryMedians": medians.get("industry:" + info["industry"], {}) if info.get("industry") else {},
-                          "industryN": (peers.get("industry:" + info["industry"], {}).get("forwardPE") or {}).get("n") if info.get("industry") else None,
-                          "sectorN": (peers.get(info.get("sector") or "_", {}).get("forwardPE") or {}).get("n"),
-                          "all": medians.get("_all", {})}},
+                "peers": valuation.peer_summary(info, peers, medians)},
             "ledger": {"resolved": [e for e in sym_ledger if e.get("resolved")][-400:],
                        "pending": [e for e in sym_ledger if not e.get("resolved")]},
         }, os.path.join(args.out, "tickers", f"{sym}.json"))

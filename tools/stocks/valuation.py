@@ -8,13 +8,16 @@ each input, each intermediate number and each assumption:
   (industry first, then sector) per unit of forward earnings, EBITDA, sales
   or book value, applied to this company's own numbers. The quartiles of the
   peer group give the range, the median the point.
-* **Discounted cash flow** – ten years of unlevered free cash flow built
-  from EBIT, taxes, depreciation, capital spending and working capital,
-  discounted at a WACC assembled from the current 10-year Treasury yield,
-  a Blume-adjusted beta, an equity risk premium, a credit spread that rises
-  with leverage, the tax shield and the market-value capital structure; a
-  perpetuity-growth terminal value cross-checked with an exit multiple, and
-  a WACC × growth sensitivity grid for the range.
+* **Discounted cash flow** – this year's unlevered free cash flow (the average
+  of EBIT less tax plus depreciation less capital spending, and operating
+  cash flow less capital spending and stock-based pay plus after-tax
+  interest, all from the trailing twelve months of the statements), projected ten years with
+  revenue growth fading to the terminal rate at a constant cash margin and
+  discounted mid-year at a WACC assembled from the current 10-year Treasury
+  yield, a Blume-adjusted beta, an equity risk premium, a credit spread that
+  rises with leverage, the company's own tax rate and the market-value
+  capital structure; a perpetuity-growth terminal value cross-checked with
+  an exit multiple, and a WACC × growth sensitivity grid for the range.
 * **Residual income** (banks, insurers, asset managers) – book value plus
   the present value of the excess of return on equity over the cost of
   equity, with the excess fading as competition catches up. A **dividend
@@ -25,7 +28,8 @@ each input, each intermediate number and each assumption:
 * **Precedent transactions** – there is no free database of deal multiples,
   so the control premium acquirers typically pay (20–40%) is applied to the
   trading-comps value as a takeover reference. Display only.
-* **Analyst targets** and the **52-week range** – reference bars.
+* **Analyst targets** – the mean target is the third method in the blend;
+  the analysts' low–high range and the **52-week range** are reference bars.
 
 The point estimate blends comparables, the cash-flow (or residual-income)
 model and the analysts geometrically, with the same sanity rules as before:
@@ -88,17 +92,34 @@ def _r(x, nd=4):
 
 # --------------------------------------------------------------------------- peers
 
-def peer_groups(infos: dict[str, dict]) -> dict[str, dict[str, dict]]:
-    """Quartiles of each valuation multiple across the tracked stocks, per industry
-    ("industry:<name>"), per sector and overall ("_all"). A group needs at least
-    three members, so a lone company is never its own peer."""
+MIN_PEERS = 4   # a group needs this many members besides the company itself
+
+
+def _company_key(info: dict, sym: str) -> str:
+    """Share classes of one company (GOOG/GOOGL, FOX/FOXA) count once."""
+    name = (info.get("longName") or info.get("shortName") or sym).lower()
+    name = name.replace(",", "").replace(".", "")
+    for suffix in (" inc", " corporation", " corp", " plc", " ltd", " co", " company", " class a", " class b", " class c"):
+        name = name.replace(suffix, "")
+    return name.strip() or sym
+
+
+def peer_groups(infos: dict[str, dict]) -> dict[str, dict[str, list]]:
+    """Every tracked and stored company's multiples, grouped per industry (key
+    "industry:<name>"), per sector and overall ("_all"), as lists of
+    [symbol, value] so a company can be left out of its own peer group."""
     buckets: dict[str, dict[str, list]] = {}
-    for info in infos.values():
+    seen = set()
+    for sym, info in infos.items():
         if not info or info.get("quoteType") == "ETF":
             continue
-        keys = [info.get("sector") or "_", "_all"]
+        ck = _company_key(info, sym)
+        if ck in seen:
+            continue
+        seen.add(ck)
+        keys = [str(info.get("sector") or "_"), "_all"]
         if info.get("industry"):
-            keys.append("industry:" + info["industry"])
+            keys.append("industry:" + str(info["industry"]))
         # Yahoo's enterprise value for a foreign listing mixes the market value in one
         # currency with debt in another, so its EV multiples are noise there
         foreign = info.get("financialCurrency") and info.get("currency") and info["financialCurrency"] != info["currency"]
@@ -109,33 +130,55 @@ def peer_groups(infos: dict[str, dict]) -> dict[str, dict[str, dict]]:
                     continue
                 v = _num(info.get(f))
                 if v is not None and 0 < v < cap:
-                    b[f].append(v)
-    out = {}
-    for key, b in buckets.items():
-        need = 1 if key == "_all" else 3
-        stats = {}
-        for f, vals in b.items():
-            if len(vals) >= need:
-                q = np.percentile(vals, [25, 50, 75])
-                stats[f] = {"p25": float(q[0]), "median": float(q[1]), "p75": float(q[2]), "n": len(vals)}
-        out[key] = stats
-    return out
+                    b[f].append([sym, v])
+    return buckets
 
 
-def peer_stats(info: dict, peers: dict, field: str, allow_all: bool = True):
-    """The closest peer group's quartiles for one multiple, and a label naming the
-    group: the industry first, then the sector, then everyone tracked."""
+def group_stats(members: list, exclude: str | None = None, need: int = MIN_PEERS) -> dict | None:
+    """Quartiles of a group's multiple, leaving the company itself out."""
+    vals = [v for sym, v in members if sym != exclude]
+    if len(vals) < need:
+        return None
+    q = np.percentile(vals, [25, 50, 75])
+    return {"p25": float(q[0]), "median": float(q[1]), "p75": float(q[2]), "n": len(vals)}
+
+
+def peer_stats(info: dict, peers: dict, field: str, allow_all: bool = True, exclude: str | None = None):
+    """The closest peer group's quartiles for one multiple, without the company
+    itself, and a label naming the group: the industry first (at least
+    MIN_PEERS others), then the sector, then everyone tracked."""
     cands = []
     if info.get("industry"):
-        cands.append(("industry:" + info["industry"], info["industry"]))
-    cands.append((info.get("sector") or "_", (info.get("sector") or "other") + " sector"))
+        cands.append(("industry:" + str(info["industry"]), str(info["industry"])))
+    cands.append((str(info.get("sector") or "_"), str(info.get("sector") or "other") + " sector"))
     if allow_all:
         cands.append(("_all", "all tracked stocks"))
     for key, label in cands:
-        s = peers.get(key, {}).get(field)
+        members = peers.get(key, {}).get(field)
+        s = group_stats(members, exclude) if members else None
         if s and s.get("median"):
             return s, f"{label} ({s['n']})"
     return None, None
+
+
+def medians_from(peers: dict) -> dict[str, dict[str, float]]:
+    """The flat shape ({group: {multiple: median}}, every member counted) for the score and the page."""
+    out = {}
+    for key, fields in peers.items():
+        need = 1 if key == "_all" else 3
+        out[key] = {f: float(np.median([v for _, v in m])) for f, m in fields.items() if len(m) >= need}
+    return out
+
+
+def peer_summary(info: dict, peers: dict, medians: dict) -> dict:
+    """What the page shows next to a stock's own multiples."""
+    sector, industry = info.get("sector"), info.get("industry")
+    ikey = "industry:" + str(industry) if industry else None
+    size = lambda key: len(peers.get(key, {}).get("forwardPE", [])) if key else None  # noqa: E731
+    return {"sector": sector, "industry": industry,
+            "medians": medians.get(str(sector or "_"), {}),
+            "industryMedians": medians.get(ikey, {}) if ikey else {},
+            "industryN": size(ikey), "sectorN": size(str(sector or "_")), "all": medians.get("_all", {})}
 
 
 # --------------------------------------------------------------------------- inputs
@@ -174,40 +217,62 @@ def is_financial(info: dict) -> bool:
     sector but have real operating cash flow and are valued like any company."""
     if (info.get("sector") or "") not in FINANCIAL_SECTORS:
         return False
-    if "insurance" in (info.get("industry") or "").lower():
+    industry = str(info.get("industry") or "").lower()
+    if "insurance" in industry and "broker" not in industry:
         return True
     ebitda = _num(info.get("ebitda"))
     return not (ebitda and ebitda > 0)
 
 
 def company_inputs(info: dict, price: float, fx: dict | None = None) -> dict:
-    """Everything the methods need, in the trading currency, with the diluted
-    share count implied by the market value (Yahoo's share count omits a second
-    share class for Alphabet, Meta or Berkshire)."""
+    """Everything the methods need, in the trading currency. Statement figures
+    (capital spending, depreciation, interest, taxes) come from the trailing
+    twelve months of the cash-flow and income statements when the feed has
+    them; the profile's ratios are the fallback. The diluted share count is the
+    market value over the profile's own price (Yahoo's share count omits a
+    second share class for Alphabet, Meta or Berkshire)."""
     f = lambda k: _num(info.get(k))  # noqa: E731
+    st = info.get("statements") or {}
+    g = lambda k: _num(st.get(k))  # noqa: E731
     ccy = info.get("currency")
     fin_ccy = info.get("financialCurrency") or ccy
     rate = fx_rate(fin_ccy, ccy, fx)
     mcap = f("marketCap")
     shares_listed = f("sharesOutstanding")
-    shares = (mcap / price) if mcap and price else shares_listed
+    quote_px = f("currentPrice") or f("regularMarketPrice") or price
+    shares = (mcap / quote_px) if mcap and quote_px else shares_listed
     conv = (lambda v: None if v is None or rate is None else v * rate)
-    rev = conv(f("totalRevenue"))
-    ebitda = conv(f("ebitda"))
-    ocf, fcf = conv(f("operatingCashflow")), conv(f("freeCashflow"))
-    debt, cash = conv(f("totalDebt")), conv(f("totalCash"))
+    rev = conv(g("revenue") if g("revenue") and g("revenue") > 0 else f("totalRevenue"))
     op_margin = f("operatingMargins")
-    ebit = rev * op_margin if rev is not None and op_margin is not None else None
-    da = max(ebitda - ebit, 0.0) if ebitda is not None and ebit is not None else None
-    capex = max(ocf - fcf, 0.0) if ocf is not None and fcf is not None else None
+    ebit = conv(g("operatingIncome")) if g("operatingIncome") is not None else (rev * op_margin if rev is not None and op_margin is not None else None)
+    da = conv(g("da")) if g("da") is not None and g("da") >= 0 else None
+    ebitda = (ebit + da) if ebit is not None and da is not None else conv(f("ebitda"))
+    if da is None and ebitda is not None and ebit is not None:
+        da = max(ebitda - ebit, 0.0)
+    capex = conv(g("capex")) if g("capex") is not None else None   # the profile has no capex figure worth the name
+    capex_assumed = capex is None
+    if capex is None and da is not None:
+        capex = da   # maintenance spending: what it takes to stand still
+    ocf = conv(g("operatingCashFlow")) if g("operatingCashFlow") is not None else conv(f("operatingCashflow"))
+    fcf = (ocf - capex) if ocf is not None and capex is not None and not capex_assumed else None
+    interest = g("interestExpense")
+    if interest is None or interest < 0:
+        interest = g("interestPaid")
+    interest = conv(interest) if interest is not None and interest >= 0 else None
+    tax_rate = None
+    if g("pretaxIncome") and g("pretaxIncome") > 0 and g("taxProvision") is not None:
+        tax_rate = _clip(g("taxProvision") / g("pretaxIncome"), 0.05, 0.40)
+    debt, cash = conv(f("totalDebt")), conv(f("totalCash"))
     book = f("bookValue")
     if book and price and book > 20 * price:
         book = None   # Yahoo quotes Berkshire's book value per Class A share against the Class B price
     out = {
         "currency": ccy, "financialCurrency": fin_ccy, "fxRate": rate, "price": price,
         "marketCap": mcap, "shares": shares, "sharesListed": shares_listed,
-        "revenue": rev, "ebitda": ebitda, "ebit": ebit, "da": da, "capex": capex,
-        "operatingCashflow": ocf, "freeCashflow": fcf,
+        "revenue": rev, "ebitda": ebitda, "ebit": ebit, "da": da, "capex": capex, "capexAssumed": capex_assumed,
+        "operatingCashflow": ocf, "freeCashflow": fcf, "leveredFcfProfile": conv(f("freeCashflow")),
+        "interestExpense": interest, "taxRate": tax_rate, "stockComp": conv(g("stockComp")),
+        "statementsBasis": st.get("basis"), "statementsAsOf": st.get("asOf"),
         "debt": debt or 0.0, "cash": cash or 0.0,
         "forwardEps": f("forwardEps"), "trailingEps": f("trailingEps"), "bookValue": book,
         "roe": f("returnOnEquity"), "payoutRatio": f("payoutRatio"), "dividendRate": f("dividendRate"),
@@ -230,6 +295,10 @@ def expected_growth(inp: dict) -> float | None:
     growth = None
     if eps_f and eps_t and eps_t > 0:
         growth = eps_f / eps_t - 1
+        # A trailing figure swollen by one-off gains says earnings will fall while
+        # revenue and reported earnings growth say the opposite: trust those
+        if growth < 0 and (rev_g or 0) > 0 and (earn_g or 0) > 0:
+            growth = earn_g
     elif earn_g is not None:
         growth = earn_g
     if growth is None:
@@ -261,14 +330,17 @@ def cost_of_capital(inp: dict, risk_free: float | None) -> dict:
     else:
         spread = 0.04
     kd = rf + spread
-    kd_after = kd * (1 - TAX_RATE)
+    tax = inp["taxRate"] if inp.get("taxRate") is not None else TAX_RATE
+    kd_after = kd * (1 - tax)
     e, d = (inp["marketCap"] or 0.0), inp["debt"]
     w_e = e / (e + d) if (e + d) > 0 else 1.0
-    wacc = _clip(w_e * ke + (1 - w_e) * kd_after, 0.06, 0.14)
+    raw_wacc = w_e * ke + (1 - w_e) * kd_after
+    wacc = _clip(raw_wacc, 0.06, 0.14)
     out = {"riskFree": rf, "betaRaw": beta_raw, "betaAdjusted": beta_adj, "equityPremium": EQUITY_PREMIUM,
            "costOfEquity": ke, "creditSpread": spread, "costOfDebt": kd, "costOfDebtAfterTax": kd_after,
-           "taxRate": TAX_RATE, "debtToEbitda": lev, "equityWeight": w_e, "debtWeight": 1 - w_e, "wacc": wacc,
-           "terminalGrowth": TERMINAL_GROWTH, "financial": inp["financial"]}
+           "taxRate": tax, "taxRateSource": "statements" if inp.get("taxRate") is not None else "assumed",
+           "debtToEbitda": lev, "equityWeight": w_e, "debtWeight": 1 - w_e, "wacc": wacc,
+           "waccClipped": wacc != raw_wacc, "terminalGrowth": TERMINAL_GROWTH, "financial": inp["financial"]}
     if inp["financial"]:
         # A bank's deposits are its raw material, not financing: only the cost of equity is meaningful
         out.update({"wacc": None, "costOfDebt": None, "costOfDebtAfterTax": None, "creditSpread": None,
@@ -285,7 +357,7 @@ def _ev_to_price(ev: float, inp: dict) -> float | None:
     return (ev - inp["debt"] + inp["cash"]) / inp["shares"]
 
 
-def trading_comps(info: dict, inp: dict, peers: dict) -> dict | None:
+def trading_comps(info: dict, inp: dict, peers: dict, symbol: str | None = None) -> dict | None:
     """Peer multiples applied to this company's numbers. Forward P/E and EV/EBITDA
     carry most of the weight (what buyers actually quote); EV/Sales is a fallback
     for loss-makers; price-to-book is for financials, whose EV means nothing."""
@@ -296,7 +368,7 @@ def trading_comps(info: dict, inp: dict, peers: dict) -> dict | None:
     def leg(key, field, label, base, to_price, weight, allow_all):
         if base is None or base <= 0:
             return
-        s, group = peer_stats(info, peers, field, allow_all)
+        s, group = peer_stats(info, peers, field, allow_all, exclude=symbol)
         if not s:
             return
         vals = [to_price(base * s[q]) for q in ("p25", "median", "p75")]
@@ -329,12 +401,12 @@ def growth_rate(inp: dict, lo: float, hi: float) -> float:
     """Near-term growth for the projections: recent revenue growth, but no more
     than ten points above the analysts' expected earnings growth (a quarter's
     revenue jump after an acquisition or an oil spike must not compound for
-    years), clipped."""
+    years) and never cut below half of it, clipped."""
     g, e = inp["revenueGrowth"], expected_growth(inp)
     if g is None:
         g = e if e is not None else 0.04
     elif e is not None:
-        g = min(g, e + 0.10)
+        g = min(g, max(e + 0.10, 0.5 * g))
     return _clip(g, lo, hi)
 
 
@@ -346,7 +418,7 @@ def dcf(inp: dict, cost: dict, exit_multiple: float | None) -> dict | None:
     if inp["financial"] or inp["fxRate"] is None or not inp["shares"]:
         return None
     rev0, ebit0, da0, capex0 = inp["revenue"], inp["ebit"], inp["da"], inp["capex"]
-    wacc, g_inf, t = cost["wacc"], TERMINAL_GROWTH, TAX_RATE
+    wacc, g_inf, t = cost["wacc"], TERMINAL_GROWTH, cost["taxRate"]
     if not rev0 or rev0 <= 0:
         return None
     # Two readings of this year's unlevered free cash flow: built up from operating
@@ -354,11 +426,14 @@ def dcf(inp: dict, cost: dict, exit_multiple: float | None) -> dict | None:
     # off the cash-flow statement (free cash flow plus the after-tax interest the
     # firm pays, which equity holders never see). They differ by cash taxes,
     # stock-based pay, one-off charges and working capital. The operating build-up
-    # is the banker's convention and the cash-flow reading the investor's; the
-    # two are averaged, so a one-off (a write-off, a tax deposit, a year of
-    # stock-based pay) counts half; when one is wiped out the other stands in.
-    from_ebit = (ebit0 * (1 - t) + (da0 or 0.0) - (capex0 if capex0 is not None else (da0 or 0.0))) if ebit0 is not None else None
-    from_fcf = (inp["freeCashflow"] + cost["costOfDebt"] * inp["debt"] * (1 - t)) if inp["freeCashflow"] is not None else None
+    # is the banker's convention and the cash-flow reading the investor's. With
+    # stock-based pay charged in both, what separates them is one-off charges
+    # and working-capital swings, so the two are averaged (a one-off counts
+    # half); when a write-off wipes one out the other stands in.
+    from_ebit = (ebit0 * (1 - t) + (da0 or 0.0) - (capex0 or 0.0)) if ebit0 is not None else None
+    interest = inp["interestExpense"] if inp["interestExpense"] is not None else cost["costOfDebt"] * inp["debt"]
+    sbc = inp["stockComp"] or 0.0   # a cost in both readings: shares handed to staff are owners' money
+    from_fcf = (inp["freeCashflow"] - sbc + interest * (1 - t)) if inp["freeCashflow"] is not None else None
     positive = [b for b in (from_ebit, from_fcf) if b is not None and b > 0]
     if not positive:
         if from_ebit is None and from_fcf is None:
@@ -368,6 +443,7 @@ def dcf(inp: dict, cost: dict, exit_multiple: float | None) -> dict | None:
         return {"label": "Discounted cash flow", "skipped": why, "ufcfFromEbit": from_ebit, "ufcfFromFcf": from_fcf}
     ufcf0 = float(np.mean(positive))
     basis = "both" if len(positive) == 2 else ("ebit" if from_ebit in positive else "fcf")
+    readings_disagree = len(positive) == 2 and max(positive) > 2.0 * min(positive)
     cash_margin = ufcf0 / rev0
     # Three years at the near-term growth rate (capped at 15%: nothing this size
     # compounds faster for a decade), then a straight fade to the terminal rate
@@ -383,25 +459,31 @@ def dcf(inp: dict, cost: dict, exit_multiple: float | None) -> dict | None:
             flows.append({"year": year, "growth": g, "revenue": rev, "ufcf": ufcf})
         last = flows[-1]
         tv = last["ufcf"] * (1 + g_end) / max(w - g_end, 0.02)
-        pv_tv = tv / (1 + w) ** PROJECTION_YEARS
+        pv_tv = tv / (1 + w) ** (PROJECTION_YEARS - 0.5)   # mid-year convention, like the flows
         return pv, pv_tv, flows
 
     pv, pv_tv, flows = project(wacc, g_inf)
     ev = pv + pv_tv
     value = _ev_to_price(ev, inp)
     if value is None or value <= 0:
-        return {"label": "Discounted cash flow", "skipped": "the cash flows don't cover the debt"}
+        return {"label": "Discounted cash flow", "skipped": "this year's cash flow is too thin against the debt: the value hinges on cash flows that don't exist yet",
+                "ufcfFromEbit": from_ebit, "ufcfFromFcf": from_fcf}
     grid = []
     for w in (wacc - 0.01, wacc, wacc + 0.01):
         row = []
         for g in (g_inf - 0.005, g_inf, g_inf + 0.005):
             p, ptv, _ = project(w, g)
-            row.append(_ev_to_price(p + ptv, inp))
+            v = _ev_to_price(p + ptv, inp)
+            row.append(v if v is not None and v > 0 else None)
         grid.append(row)
-    vals = [v for row in grid for v in row if v is not None and v > 0]
+    vals = [v for row in grid for v in row if v is not None]
+    if not vals:
+        return {"label": "Discounted cash flow", "skipped": "this year's cash flow is too thin against the debt: the value hinges on cash flows that don't exist yet"}
     out = {
         "label": "Discounted cash flow", "value": value, "low": min(vals), "high": max(vals),
         "basis": basis, "ufcf0": ufcf0, "ufcfFromEbit": from_ebit, "ufcfFromFcf": from_fcf, "cashMargin": cash_margin,
+        "taxRate": t, "interest": interest, "capexAssumed": inp["capexAssumed"], "statementsBasis": inp["statementsBasis"],
+        "readingsDisagree": readings_disagree,
         "growth3y": g1, "terminalGrowth": g_inf, "discountRate": wacc,
         "pvFlows": pv, "pvTerminal": pv_tv, "terminalShare": pv_tv / ev if ev else None,
         "enterpriseValue": ev, "equityValue": ev - inp["debt"] + inp["cash"],
@@ -413,8 +495,10 @@ def dcf(inp: dict, cost: dict, exit_multiple: float | None) -> dict | None:
     if exit_multiple and inp["ebitda"] and inp["ebitda"] > 0:
         ebitda10 = flows[-1]["revenue"] * inp["ebitda"] / rev0
         pv_exit = exit_multiple * ebitda10 / (1 + wacc) ** PROJECTION_YEARS
-        out["exitMultiple"] = exit_multiple
-        out["exitValue"] = _ev_to_price(pv + pv_exit, inp)
+        exit_value = _ev_to_price(pv + pv_exit, inp)
+        if exit_value is not None and exit_value > 0:
+            out["exitMultiple"] = exit_multiple
+            out["exitValue"] = exit_value
     lev = inp["netDebtToEbitda"]
     if lev is not None and lev > 4:
         out["caveat"] = ("net debt is over four times EBITDA, which usually means a financing arm (dealer or "
@@ -503,39 +587,42 @@ def lbo(inp: dict, cost: dict, exit_multiple: float | None) -> dict | None:
     g = growth_rate(inp, 0.0, 0.10)
     rate = cost["riskFree"] + LBO_LOAN_SPREAD
 
+    tax = cost["taxRate"]
+
     def run(debt_new):
-        rev, debt, cash = rev0, debt_new, 0.0
+        rev, debt, cash, short = rev0, debt_new, 0.0, False
         for _ in range(LBO_YEARS):
             rev_prev, rev = rev, rev * (1 + g)
             ebitda = rev * margin
             interest = debt * rate
-            taxes = max(ebitda - rev * da_pct - interest, 0.0) * TAX_RATE
+            taxes = max(ebitda - rev * da_pct - interest, 0.0) * tax
             cf = ebitda - rev * capex_pct - interest - taxes - NWC_PCT_OF_GROWTH * (rev - rev_prev)
             if cf >= 0:
                 paid = min(cf, debt)
                 debt -= paid
                 cash += cf - paid
             else:
-                debt -= cf   # a shortfall is borrowed
+                short = True   # the company can't service the buyout debt from its own cash flow
+                debt -= cf
         ebitda5 = rev * margin
-        return ebitda5 * exit_mult - debt + cash, ebitda5, debt
+        return ebitda5 * exit_mult - debt + cash, ebitda5, debt, short
 
     debt_new = LBO_LEVERAGE * ebitda0
-    exit_equity = ebitda5 = debt_end = None
     for _ in range(4):   # leverage is also capped at a share of the price, which depends on leverage
-        exit_equity, ebitda5, debt_end = run(debt_new)
+        exit_equity, _, _, _ = run(debt_new)
         ev_mid = exit_equity / (1 + LBO_IRRS[1]) ** LBO_YEARS + debt_new
-        if debt_new <= LBO_MAX_DEBT_SHARE * ev_mid:
+        if exit_equity <= 0 or debt_new <= LBO_MAX_DEBT_SHARE * ev_mid:
             break
         debt_new = LBO_MAX_DEBT_SHARE * ev_mid
-    if exit_equity is None or exit_equity <= 0:
-        return {"label": "Leveraged buyout", "skipped": "the business wouldn't pay its own buyout debt"}
+    exit_equity, ebitda5, debt_end, short = run(debt_new)   # the figures shown belong to the final debt
+    if exit_equity <= 0 or short or debt_end > debt_new:
+        return {"label": "Leveraged buyout", "skipped": "the business couldn't service the buyout debt from its cash flow"}
     prices = []
     for irr in LBO_IRRS:
         equity_in = exit_equity / (1 + irr) ** LBO_YEARS
         prices.append(_ev_to_price(equity_in + debt_new, inp))
     if any(p is None or p <= 0 for p in prices):
-        return {"label": "Leveraged buyout", "skipped": "the business wouldn't pay its own buyout debt"}
+        return {"label": "Leveraged buyout", "skipped": "the business couldn't service the buyout debt from its cash flow"}
     out = {"label": "Leveraged buyout", "value": prices[1], "low": min(prices), "high": max(prices),
            "irrs": list(LBO_IRRS), "leverage": debt_new / ebitda0, "newDebt": debt_new, "exitMultiple": exit_mult,
            "ebitdaExit": ebitda5, "debtAtExit": debt_end, "exitEquity": exit_equity, "growth": g,
@@ -568,11 +655,14 @@ def analyst_targets(inp: dict) -> dict | None:
 
 # --------------------------------------------------------------------------- the whole picture
 
-def valuation(info: dict, price: float, peers: dict, risk_free: float | None = None, fx: dict | None = None) -> dict:
+def valuation(info: dict, price: float, peers: dict, risk_free: float | None = None, fx: dict | None = None,
+              symbol: str | None = None) -> dict:
     """Every method, the football field and the blended point estimate for one stock."""
     out: dict = {"methods": {}, "inputs": {}, "field": []}
-    if not info or info.get("quoteType") == "ETF" or not price:
+    price = _num(price)
+    if not info or info.get("quoteType") == "ETF" or not price or price <= 0:
         return out
+    fx = {k: v for k, v in (fx or {}).items() if _num(v) and _num(v) > 0}
     inp = company_inputs(info, price, fx)
     cost = cost_of_capital(inp, risk_free)
     growth = expected_growth(inp)
@@ -584,16 +674,18 @@ def valuation(info: dict, price: float, peers: dict, risk_free: float | None = N
         "ebitda": inp["ebitda"], "ebit": inp["ebit"], "da": inp["da"], "capex": inp["capex"],
         "enterpriseValue": inp["enterpriseValue"], "netDebtToEbitda": inp["netDebtToEbitda"],
         "financialCurrency": inp["financialCurrency"], "fxRate": inp["fxRate"], "financial": inp["financial"],
+        "interestExpense": inp["interestExpense"], "taxRate": inp["taxRate"], "capexAssumed": inp["capexAssumed"],
+        "statementsBasis": inp["statementsBasis"], "statementsAsOf": inp["statementsAsOf"],
     }
     out["costOfCapital"] = cost
     if inp["fxRate"] is None:
         out["currencyNote"] = (f"The accounts are reported in {inp['financialCurrency']} and no rate to "
                                f"{inp['currency']} is available, so the methods that need whole-company amounts are skipped.")
 
-    exit_stats, _ = peer_stats(info, peers, "enterpriseToEbitda", True)
+    exit_stats, _ = peer_stats(info, peers, "enterpriseToEbitda", True, exclude=symbol)
     exit_multiple = exit_stats["median"] if exit_stats else None
     m = out["methods"]
-    comps = trading_comps(info, inp, peers)
+    comps = trading_comps(info, inp, peers, symbol)
     if comps:
         m["comps"] = comps
     for key, res in (("dcf", dcf(inp, cost, exit_multiple)), ("residual", residual_income(inp, cost)),
@@ -626,8 +718,11 @@ def valuation(info: dict, price: float, peers: dict, risk_free: float | None = N
         out["marginOfSafety"] = blended / price - 1
         for k in kept:
             m[k]["weight"] = BLEND_WEIGHTS[k] / total
-    elif cands and "note" not in out:
-        out["note"] = "The valuation methods disagree too much to give one number."
+    else:
+        if cands and "note" not in out:
+            out["note"] = "The valuation methods disagree too much to give one number."
+        for res in m.values():
+            res["inBlend"] = False   # nothing was blended
 
     # The football field: one bar per method, low–high, with the point marked
     order = [("week52", "52-week range"), ("analysts", None), ("comps", None), ("precedent", None),
@@ -657,7 +752,7 @@ def valuation(info: dict, price: float, peers: dict, risk_free: float | None = N
 PEER_STORE = "peers.json.gz"
 PEER_REFRESH_DAYS = 10
 PEER_BUDGET = 60
-PEER_FIELDS = ["shortName", "sector", "industry", "currency", "financialCurrency", "quoteType", "marketCap"] + list(MULTIPLES)
+PEER_FIELDS = ["shortName", "longName", "sector", "industry", "currency", "financialCurrency", "quoteType", "marketCap"] + list(MULTIPLES)
 # The FTSE MIB, so the Italian names have European peers next to the S&P 500 ones
 PEER_EXTRA = [
     "A2A.MI", "AMP.MI", "AZM.MI", "BAMI.MI", "BGN.MI", "BMED.MI", "BMPS.MI", "BPE.MI", "BZU.MI", "CPR.MI",
@@ -743,8 +838,3 @@ def refresh_peer_store(store: dict, symbols: list[str], now, fetch, budget: int 
 
 def peer_infos(store: dict) -> dict[str, dict]:
     return {s: e["info"] for s, e in store.get("symbols", {}).items() if e.get("info", {}).get("sector")}
-
-
-def medians_from(peers: dict) -> dict[str, dict[str, float]]:
-    """The old flat shape ({group: {multiple: median}}) for the score and the page."""
-    return {key: {f: s["median"] for f, s in stats.items()} for key, stats in peers.items()}

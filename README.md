@@ -193,12 +193,16 @@ The fair value side mirrors how a bank values a company (`tools/stocks/valuation
 comparables apply the quartiles of the closest peer group's multiples (forward P/E, EV/EBITDA, EV/Sales;
 price to book for banks and insurers) to the company's own figures, bridging enterprise value to equity
 through debt and cash; the peers are every S&P 500 member plus the FTSE MIB, kept in `peers.json.gz` on
-the data branch and refreshed sixty profiles per run. The DCF projects free cash flow to the firm for ten
-years (revenue growth capped at 15% and at ten points above expected earnings growth, fading to 2.5%, a
-constant cash margin) and discounts it mid-year at a WACC built from the day's 10-year Treasury yield, a
-Blume-adjusted beta, a 5% equity premium, a leverage-dependent credit spread, the 23% tax shield and
-market-value weights, with a perpetuity terminal value, an exit-multiple cross-check and a WACC × growth
-sensitivity grid. Financials get a residual-income model (book value plus fading excess returns over the
+the data branch and refreshed sixty profiles per run; a company is left out of its own peer group and a
+second share class counts once. The DCF starts from the trailing twelve months of the statements
+(`fetch_statements` pulls capital spending, depreciation, interest and taxes, which the profile lacks),
+averages the operating build-up and the cash-flow reading of free cash flow to the firm (stock-based pay
+charged in both),
+projects it ten years (revenue growth capped at 15%, at ten points above expected earnings growth and at no
+less than half the revenue rate, fading to 2.5%, a constant cash margin) and discounts it mid-year at a
+WACC built from the day's 10-year Treasury yield, a Blume-adjusted beta, a 5% equity premium, a
+leverage-dependent credit spread, the company's effective tax rate and market-value weights, with a
+perpetuity terminal value, an exit-multiple cross-check and a WACC × growth sensitivity grid. Financials get a residual-income model (book value plus fading excess returns over the
 cost of equity) and a dividend discount cross-check. A leveraged-buyout model backs out the price a sponsor
 could pay for a 20–25% return after five years at 5.5× EBITDA of debt, and a 20–40% control premium on the
 comparables stands in for precedent transactions, since no free database of deal multiples exists; both are

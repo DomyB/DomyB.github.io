@@ -61,13 +61,11 @@ def _peer_multiple(info, medians, field, allow_all=True):
     return None
 
 
-def fair_value(info: dict, price: float, peers: dict, risk_free: float | None = None, fx: dict | None = None) -> dict:
+def fair_value(info: dict, price: float, peers: dict, risk_free: float | None = None, fx: dict | None = None,
+               symbol: str | None = None) -> dict:
     """Fair value estimates for one stock: every method, the football field and the
-    blend. `peers` is valuation.peer_groups(...) (quartiles) or the flat median
-    shape, which is upgraded on the fly."""
-    if peers and any(isinstance(v, (int, float)) for g in peers.values() for v in g.values()):
-        peers = {k: {f: {"p25": m, "median": m, "p75": m, "n": 3} for f, m in g.items()} for k, g in peers.items()}
-    return valuation.valuation(info, price, peers or {}, risk_free, fx)
+    blend. `peers` is valuation.peer_groups(...)."""
+    return valuation.valuation(info, price, peers or {}, risk_free, fx, symbol)
 
 
 def fundamental_score(info: dict, price: float, medians: dict, fv: dict) -> dict:
