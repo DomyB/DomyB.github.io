@@ -358,11 +358,27 @@
     if (state.route.view !== "overview" && !sameDetail) window.scrollTo({ top: app.offsetTop - 60, behavior: "auto" });
   }
 
+  // Whether a market is in its regular session right now, from the browser's
+  // clock (the summary's own flag is only as fresh as the last data run, and a
+  // run can be hours old when GitHub drops scheduled jobs). Holidays are ignored.
+  function marketOpenNow() {
+    function openIn(tz, oh, om, ch, cm) {
+      try {
+        var parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour12: false, weekday: "short", hour: "numeric", minute: "numeric" }).formatToParts(new Date());
+        var get = function (t) { return (parts.find(function (p) { return p.type === t; }) || {}).value; };
+        if (/Sat|Sun/.test(get("weekday"))) return false;
+        var m = (parseInt(get("hour"), 10) % 24) * 60 + parseInt(get("minute"), 10);
+        return m >= oh * 60 + om && m < ch * 60 + cm;
+      } catch (e) { return false; }
+    }
+    return openIn("America/New_York", 9, 30, 16, 0) || openIn("Europe/Rome", 9, 0, 17, 30);
+  }
+
   function renderStatus() {
     clear(statusEl);
     if (!state.summary) return;
     var s = state.summary;
-    var open = s.session && (s.session.us === "open" || s.session.milan === "open");
+    var open = marketOpenNow();
     statusEl.appendChild(document.createTextNode("Data from " + timeAgo(s.generatedAt)));
     if (open) statusEl.appendChild(el("span", { class: "chip", text: "Market open" }));
     statusEl.title = "Generated " + new Date(s.generatedAt).toLocaleString();
