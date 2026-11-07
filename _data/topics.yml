@@ -33,9 +33,3 @@
   color: "#842164"
   color_dark: "#cf4eb6"
   connects: [life, ai, economics]
-
-- slug: wife
-  name: WIFE
-  color: "#a55e05"
-  color_dark: "#ff9300"
-  connects: [life]
