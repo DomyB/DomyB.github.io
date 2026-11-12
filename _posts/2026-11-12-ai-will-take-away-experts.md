@@ -1,0 +1,28 @@
+---
+title: "AI will take away experts"
+topic: ai
+connections: [economics, politics, job-apocalypse]
+description: "Is Ai going to make graduates pay"
+---
+
+Today AI is a major topic in the new economy, and many policymakers are focusing on how to save the job market. Yet, as David Autor points out, rich countries are more likely to run out of workers than to run out of jobs, so we are probably focusing on the wrong problem. Some scholars, like Mounk, believe that AI will slowly but surely create mass unemployment. Others, in particular Autor from MIT, believe that AI could rebuild the middle class, because it will make more people experts and could benefit the whole economy. Most of these authors have one thing in common: they believe there will still be experts in the future. I believe it is this assumption that is wrong. I will argue that the most important danger is not job loss in general, but the loss of entry-level positions. My argument has three steps. First, AI is replacing exactly the usual intern tasks. Second, these tasks are exactly the ones that create future experts and give knowledge to those who do them. Third, people slowly lose knowledge without even noticing it: they do not notice the skills they failed to develop. If this holds true, policymakers should focus not on how to save jobs, but on how to save apprenticeship.
+
+---
+
+First, AI is not replacing the most expensive workers first, but the beginners. Acemoglu shows that the proven gains from AI come from “easy-to-learn” tasks with a clear right answer: exactly the tasks that were given to entry-level positions. A study by Revelio Labs shows that entry-level postings in the US have declined by a third since 2023. PwC once planned to hire around 100,000 people over five years; today it offers fewer and fewer graduate jobs, and law firms and consulting firms are following the same trend. In a chapter of his book, Mounk describes a visit to a bank where the head of AI adoption told him that building a financial model once took a junior banker two days and two nights, and now takes ten minutes. This matters for my argument because it shows that AI is not hitting the workforce evenly: it removes the bottom rung of the ladder first.
+
+---
+
+Second, if the tasks replaced by AI were only drudgery, we should not worry. The problem is that they are not: they are exactly the tasks that build the skills experts use every day. As Autor argues, expertise is valuable because it is both necessary and scarce, and it is built over years of supervised practice, like an artisan who repeats the same tasks every day under a master. As the philosopher Michael Polanyi wrote, “we can know more than we can tell”: this is how an expert’s mind works. It is almost instinctive, but this instinct is built over time. And companies know this. In Shanghai, an engineer built a tool called “Colleague Skill” that tries to capture the “decision-making experience built up over years” by experts and replicate it through AI. This matters because the tasks we are handing to AI were never just chores; they were the training ground for future experts.
+
+---
+
+Third, the loss of skills is invisible. This is the biggest problem, because if people knew and were actually aware of it, they might change the way they study or practise. A study by Bastani in a high school in Turkey, with about 1,000 students, found that students who were given a ChatGPT-style tool performed 48% better on practice problems but 17% worse on the exam without AI. Most of them simply asked for the answer and copied it, even though the AI was right only about half the time, and they thought they had learned as much as the students who did not use it. The same is true for professionals: BCG consultants using GPT-4 performed markedly worse on tasks outside the AI’s competence, and they actually thought they had improved. If a person cannot see that they are getting worse, how can they fix it? Individual choices will not solve this problem.
+
+---
+
+The other side argues that AI actually improves learning. A study by Brynjolfsson, Li and Raymond shows that new customer-service agents using AI reached the performance of experienced agents in three months instead of ten. Another study, by Noy and Zhang, tested writing and showed that the weakest writers using ChatGPT could reach the level of the median writer. Autor uses this evidence to argue that AI is creating more experts. But these studies show something different: not that there are more experts, but that people with the tool can perform like experts. Take the tool away, and the evidence is clear, as Bastani showed. However, I have to acknowledge that AI can also be used to learn. In Bastani’s study, the students who used a version of the AI that gave them hints instead of solving the exercise for them showed no significant difference from the control group. So the tool can be used well, and design is everything. But good design is costly, since teachers had to write hints for every problem, and market forces are not going there. This is why policy has to act.
+
+---
+
+Policymakers should therefore not focus mainly on universal basic income or retraining programs, which help people who already have skills. They should focus on protecting the process that creates skills: subsidizing entry-level jobs in the professions most exposed to AI, making “tutor mode” the default for AI in schools, and keeping exams that test people without AI, just as the US aviation authority tells pilots to limit autopilot so they can still fly when it fails. Otherwise, we risk a future with plenty of AI and too few people able to check it.
